@@ -22,3 +22,5 @@ static inline void kvmclock_create(void)
 }
 
 #endif /* !CONFIG_KVM */
+
+uint64_t kvmclock_getclock(void); /* GVM add */

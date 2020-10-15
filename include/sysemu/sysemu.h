@@ -164,6 +164,10 @@ extern uint8_t qemu_extra_params_fw[2];
 extern QEMUClockType rtc_clock;
 extern const char *mem_path;
 extern int mem_prealloc;
+extern const char *shm_path; /* GVM add */
+extern int local_cpus; /* GVM add */
+extern int local_cpu_start_index; /* GVM add */
+extern int qemu_nums; /* GVM add */
 
 #define MAX_NODES 128
 #define NUMA_NODE_UNASSIGNED MAX_NODES

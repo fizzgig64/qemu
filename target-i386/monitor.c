@@ -498,8 +498,17 @@ const MonitorDef *target_monitor_defs(void)
 
 void hmp_info_local_apic(Monitor *mon, const QDict *qdict)
 {
-    x86_cpu_dump_local_apic_state(mon_get_cpu(), (FILE *)mon, monitor_fprintf,
-                                  CPU_DUMP_FPU);
+    /* GVM add begin: had only called x86_cpu_dump_local_apic_state */
+    int i;
+
+    for (i = 0; i < smp_cpus; i++) {
+        CPUState *cpu = qemu_get_cpu(i);
+        if (cpu && cpu->local) {
+            x86_cpu_dump_local_apic_state(cpu, (FILE *)mon, monitor_fprintf,
+                                        CPU_DUMP_FPU);
+        }
+    }
+    /* GVM add end */
 }
 
 void hmp_info_io_apic(Monitor *mon, const QDict *qdict)

@@ -124,6 +124,8 @@ int main(int argc, char **argv)
 #include "qapi/qmp/qerror.h"
 #include "sysemu/iothread.h"
 
+#include "interrupt-router.h" /* GVM add */
+
 #define MAX_VIRTIO_CONSOLES 1
 #define MAX_SCLP_CONSOLES 1
 
@@ -137,6 +139,16 @@ const char* keyboard_layout = NULL;
 ram_addr_t ram_size;
 const char *mem_path = NULL;
 int mem_prealloc = 0; /* force preallocation of physical target memory */
+
+/* GVM add begin */
+/* distributed QEMU variables */
+const char* shm_path = NULL;
+int local_cpus = -1;
+int local_cpu_start_index = 0;
+int qemu_nums = 0;
+const char *cluster_iplist = NULL;
+/* GVM add end */
+
 bool enable_mlock = false;
 int nb_nics;
 NICInfo nd_table[MAX_NICS];
@@ -545,6 +557,31 @@ static QemuOptsList qemu_iscsi_opts = {
     },
 };
 #endif
+
+/* GVM add begin */
+static QemuOptsList qemu_local_cpu_opts = {
+    .name = "local-cpu",
+    .implied_opt_name = "cpus",
+    .merge_lists = true,
+    .head = QTAILQ_HEAD_INITIALIZER(qemu_local_cpu_opts.head),
+    .desc = {
+        {
+            .name = "cpus",
+            .type = QEMU_OPT_NUMBER,
+            .help = "number of local CPUs",
+        },{
+            .name = "start",
+            .type = QEMU_OPT_NUMBER,
+            .help = "start index of local CPUs",
+        },{
+            .name = "iplist",
+            .type = QEMU_OPT_STRING,
+            .help = "list of cluster node ip address (seperated by space)",
+        },
+        { /* end of list */ }
+    },
+};
+/* GVM add end */
 
 /**
  * Get machine options
@@ -1801,11 +1838,17 @@ void qemu_system_guest_panicked(void)
 
 void qemu_system_reset_request(void)
 {
+    /* GVM add begin */
+    if (local_cpus != smp_cpus && local_cpu_start_index == 0) {
+        reset_forwarding();
+    }
+    /* GVM add end */
     if (no_reboot) {
         shutdown_requested = 1;
     } else {
         reset_requested = 1;
     }
+    wake_remote_cpu(); /* GVM add */
     cpu_stop_current();
     qemu_notify_event();
 }
@@ -1877,9 +1920,15 @@ void qemu_system_killed(int signal, pid_t pid)
 
 void qemu_system_shutdown_request(void)
 {
+    /* GVM add begin */
+    if (local_cpus != smp_cpus && local_cpu_start_index == 0) {
+        shutdown_forwarding();
+    }
+    /* GVM add end */
     trace_qemu_system_shutdown_request();
     replay_shutdown_request();
     shutdown_requested = 1;
+    wake_remote_cpu(); /* GVM add */
     qemu_notify_event();
 }
 
@@ -1919,6 +1968,7 @@ static bool main_loop_should_exit(void)
     if (qemu_shutdown_requested()) {
         qemu_kill_report();
         qapi_event_send_shutdown(&error_abort);
+
         if (no_shutdown) {
             vm_stop(RUN_STATE_SHUTDOWN);
         } else {
@@ -3076,6 +3126,7 @@ int main(int argc, char **argv, char **envp)
 #ifdef CONFIG_LIBISCSI
     qemu_add_opts(&qemu_iscsi_opts);
 #endif
+    qemu_add_opts(&qemu_local_cpu_opts); /* GVM add */
     module_call_init(MODULE_INIT_OPTS);
 
     runstate_init();
@@ -4044,6 +4095,30 @@ int main(int argc, char **argv, char **envp)
                     exit(1);
                 }
                 break;
+            /* GVM add begin */
+            case QEMU_OPTION_shm_path:
+                shm_path = optarg;
+                fprintf(stdout, "%s\n", optarg);
+                break;
+            // local CPU
+            case QEMU_OPTION_local_cpu:
+                opts = qemu_opts_parse_noisily(qemu_find_opts("local-cpu"), optarg,
+                                               true);
+                if (!opts) {
+                    exit(1);
+                }
+                local_cpus = qemu_opt_get_number(opts, "cpus", 1);
+                local_cpu_start_index = qemu_opt_get_number(opts, "start", 0);
+                cluster_iplist = qemu_opt_get(opts, "iplist");
+                if (parse_cluster_iplist(cluster_iplist)) {
+                    error_report("iplist parse failed");
+                    exit(1);
+                }
+                break;
+            case QEMU_OPTION_debug:
+                pr_debug_log = 1;
+                break;
+            /* GVM add end */
             default:
                 os_parse_cmd_args(popt->index, optarg);
             }
@@ -4168,6 +4243,41 @@ int main(int argc, char **argv, char **envp)
     }
 
     smp_parse(qemu_opts_find(qemu_find_opts("smp-opts"), NULL));
+
+    /* GVM add begin */
+    if (local_cpus > smp_cpus) {
+        error_report("Number of local SMP CPUs requested (%d) exceeds "
+				"smp CPUs (%d) ",
+                     local_cpus, smp_cpus);
+        exit(1);
+    }
+    if (local_cpu_start_index + local_cpus > smp_cpus) {
+        error_report("Last Index of local SMP CPUs requested (%d) exceeds "
+				"Last Index of smp CPUs (%d) ",
+                     local_cpu_start_index + local_cpus - 1, smp_cpus - 1);
+        exit(1);
+    }
+    if (local_cpu_start_index % local_cpus != 0) {
+        error_report("Start Index of local SMP CPUs requested (%d) not aligned "
+				"with Local CPU Number requested (%d)",
+                     local_cpu_start_index, local_cpus);
+        exit(1);
+    }
+    if (local_cpus == -1) {
+        local_cpus = smp_cpus;
+    }
+
+    printf("CPU Info\nTotal: %d\nLocal: %d [%d-%d]\nRemote: %d[ ",
+           smp_cpus, local_cpus, local_cpu_start_index, local_cpu_start_index +
+		   local_cpus - 1, smp_cpus - local_cpus);
+    for (i = 0; i < smp_cpus; i++) {
+        if (i < local_cpu_start_index || i > local_cpu_start_index +
+				local_cpus - 1) {
+            printf("%d ", i);
+        }
+    }
+    printf("]\n");
+    /* GVM add end */
 
     machine_class->max_cpus = machine_class->max_cpus ?: 1; /* Default to UP */
     if (max_cpus > machine_class->max_cpus) {
@@ -4668,6 +4778,8 @@ int main(int argc, char **argv, char **envp)
         return 0;
     }
 
+    start_io_router(); /* GVM add */
+
     if (incoming) {
         Error *local_err = NULL;
         qemu_start_incoming_migration(incoming, &local_err);
@@ -4687,6 +4799,12 @@ int main(int argc, char **argv, char **envp)
 
     bdrv_close_all();
     pause_all_vcpus();
+
+    /* GVM add begin */
+    /* stop routers and close connection */
+    disconnect_io_router();
+    /* GVM add end */
+
     res_free();
 
     /* vhost-user must be cleaned up before chardevs.  */

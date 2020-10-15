@@ -80,6 +80,8 @@ static unsigned int throttle_percentage;
 #define CPU_THROTTLE_PCT_MAX 99
 #define CPU_THROTTLE_TIMESLICE_NS 10000000
 
+static int wait_remote_cpu_count = 0; /* GVM add */
+
 bool cpu_is_stopped(CPUState *cpu)
 {
     return cpu->stopped || !runstate_is_running();
@@ -904,12 +906,21 @@ static QemuCond qemu_cpu_cond;
 /* system init */
 static QemuCond qemu_pause_cond;
 
+/* for remote CPU
+ * Remote CPU threads would wait this until specific event occured
+ */
+static QemuCond qemu_remote_cpu_cond; /* GVM add */
+static QemuMutex qemu_remote_mutex; /* GVM add */
+
 void qemu_init_cpu_loop(void)
 {
     qemu_init_sigbus();
     qemu_cond_init(&qemu_cpu_cond);
     qemu_cond_init(&qemu_pause_cond);
     qemu_cond_init(&qemu_io_proceeded_cond);
+    qemu_cond_init(&qemu_remote_cpu_cond); /* GVM add */
+    qemu_mutex_init(&qemu_remote_mutex); /* GVM add */
+
     qemu_mutex_init(&qemu_global_mutex);
 
     qemu_thread_get_self(&io_thread);
@@ -917,6 +928,13 @@ void qemu_init_cpu_loop(void)
 
 void run_on_cpu(CPUState *cpu, run_on_cpu_func func, run_on_cpu_data data)
 {
+    /* GVM add begin */
+    if (!cpu->local) {
+        printf("run_on_cpu: not local CPU, ignore here. "
+				"This could be a latent bug.\n");
+        return;
+    }
+    /* GVM add end */
     do_run_on_cpu(cpu, func, data, &qemu_global_mutex);
 }
 
@@ -993,15 +1011,36 @@ static void *qemu_kvm_cpu_thread_fn(void *arg)
     cpu->created = true;
     qemu_cond_signal(&qemu_cpu_cond);
 
-    do {
-        if (cpu_can_run(cpu)) {
-            r = kvm_cpu_exec(cpu);
-            if (r == EXCP_DEBUG) {
-                cpu_handle_guest_debug(cpu);
+    /* GVM add begin deal with different CPU */
+    if (cpu->local) {
+        do {
+            if (cpu_can_run(cpu)) {
+                r = kvm_cpu_exec(cpu);
+                if (r == EXCP_DEBUG) {
+                    cpu_handle_guest_debug(cpu);
+                }
+            }
+            qemu_kvm_wait_io_event(cpu);
+        } while (!cpu->unplug || cpu_can_run(cpu));
+    } else {
+        printf("CPU %d is remote CPU, pause\n", cpu->cpu_index);
+        qemu_mutex_unlock_iothread();
+        /* use a new lock since qemu_global_mutex may cause deadlock */
+        qemu_mutex_lock(&qemu_remote_mutex);
+        while (1) {
+            qemu_cond_wait(&qemu_remote_cpu_cond, &qemu_remote_mutex);
+            wait_remote_cpu_count--;
+            if (qemu_shutdown_requested_get()) {
+                cpu->stopped = true;
+                break;
+            }
+            if (qemu_reset_requested_get()) {
+                cpu->stopped = true;
             }
         }
-        qemu_kvm_wait_io_event(cpu);
-    } while (!cpu->unplug || cpu_can_run(cpu));
+        qemu_mutex_unlock(&qemu_remote_mutex);
+    }
+    /* GVM add end */
 
     qemu_kvm_destroy_vcpu(cpu);
     cpu->created = false;
@@ -1688,3 +1727,13 @@ void dump_drift_info(FILE *f, fprintf_function cpu_fprintf)
         cpu_fprintf(f, "Max guest advance   NA\n");
     }
 }
+
+/* GVM add begin */
+void wake_remote_cpu(void) {
+    qemu_cond_broadcast(&qemu_remote_cpu_cond);
+    wait_remote_cpu_count = smp_cpus - local_cpus;
+    while (wait_remote_cpu_count > 0) {
+        /* wait all remote cpu thread to change CPU status */
+    }
+}
+/* GVM add end  */

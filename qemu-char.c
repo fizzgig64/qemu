@@ -85,6 +85,8 @@
 #include "qemu/sockets.h"
 #include "ui/qemu-spice.h"
 
+#include "interrupt-router.h" /* GVM add */
+
 #define READ_BUF_LEN 4096
 #define READ_RETRIES 10
 #define TCP_MAX_FDS 16
@@ -654,6 +656,14 @@ static int mux_proc_byte(CharDriverState *chr, MuxDriver *d, int ch)
             {
                  const char *term =  "QEMU: Terminated\n\r";
                  qemu_chr_write_all(chr, (uint8_t *)term, strlen(term));
+
+                /* GVM add begin */
+                if (local_cpus != smp_cpus) {
+                    exit_forwarding();
+                    disconnect_io_router();
+                }
+                /* GVM add end */
+
                  exit(0);
                  break;
             }

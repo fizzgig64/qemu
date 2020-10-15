@@ -385,6 +385,15 @@ void memory_region_init_ram(MemoryRegion *mr,
                             uint64_t size,
                             Error **errp);
 
+/* GVM add begin */
+void memory_region_init_shram(MemoryRegion *mr,
+                            struct Object *owner,
+                            const char *name,
+                            uint64_t size,
+                            const char *path,
+                            Error **errp);
+/* GVM add end */
+
 /**
  * memory_region_init_resizeable_ram:  Initialize memory region with resizeable
  *                                     RAM.  Accesses into the region will
@@ -1451,7 +1460,7 @@ bool address_space_access_valid(AddressSpace *as, hwaddr addr, int len, bool is_
  * @is_write: indicates the transfer direction
  */
 void *address_space_map(AddressSpace *as, hwaddr addr,
-                        hwaddr *plen, bool is_write);
+                        hwaddr *plen, bool is_write, bool dsm_pin, bool *is_dsm); /* GVM add: is_dsm */
 
 /* address_space_unmap: Unmaps a memory region previously mapped by address_space_map()
  *
@@ -1465,7 +1474,7 @@ void *address_space_map(AddressSpace *as, hwaddr addr,
  * @is_write: indicates the transfer direction
  */
 void address_space_unmap(AddressSpace *as, void *buffer, hwaddr len,
-                         int is_write, hwaddr access_len);
+                         int is_write, hwaddr access_len, bool dsm_unpin); /* GVM add: dsm_unpin */
 
 
 /* Internal functions, part of the implementation of address_space_read.  */
@@ -1487,6 +1496,11 @@ static inline bool memory_access_is_direct(MemoryRegion *mr, bool is_write)
                memory_region_is_romd(mr);
     }
 }
+
+/* GVM add begin */
+#include "sysemu/kvm.h"
+#include "sysemu/sysemu.h"
+/* GVM add end */
 
 /**
  * address_space_read: read from an address space.
@@ -1514,7 +1528,9 @@ MemTxResult address_space_read(AddressSpace *as, hwaddr addr, MemTxAttrs attrs,
             rcu_read_lock();
             l = len;
             mr = address_space_translate(as, addr, &addr1, &l, false);
-            if (len == l && memory_access_is_direct(mr, false)) {
+            if (len == l && memory_access_is_direct(mr, false)
+                && (!kvm_enabled() || local_cpus == smp_cpus || shm_path != NULL) /* GVM add */
+            ) {
                 ptr = qemu_map_ram_ptr(mr->ram_block, addr1);
                 memcpy(buf, ptr, len);
             } else {

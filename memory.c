@@ -1366,6 +1366,46 @@ void memory_region_init_ram(MemoryRegion *mr,
     mr->dirty_log_mask = tcg_enabled() ? (1 << DIRTY_MEMORY_CODE) : 0;
 }
 
+/* GVM add begin */
+static RAMBlock *qemu_ram_alloc_shmem(ram_addr_t size, MemoryRegion *mr, const char *shm_path, Error **errp)
+{
+    int fd = shm_open(shm_path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+    if (fd == -1) {
+        goto err;
+    }
+    if (ftruncate(fd, size) == -1) {
+        shm_unlink(shm_path);
+        goto err;
+    }
+    void *host = mmap(0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (host == MAP_FAILED) {
+        shm_unlink(shm_path);
+        goto err;
+    }
+    /* size_t align = QEMU_VMALLOC_ALIGN; */
+    return qemu_ram_alloc_from_ptr(size, host, mr, errp);
+
+err:
+    error_setg_errno(errp, errno, "cannot set up shared memory");
+    return NULL;
+}
+
+void memory_region_init_shram(MemoryRegion *mr,
+                            Object *owner,
+                            const char *name,
+                            uint64_t size,
+                            const char *path,
+                            Error **errp)
+{
+    memory_region_init(mr, owner, name, size);
+    mr->ram = true;
+    mr->terminates = true;
+    mr->destructor = memory_region_destructor_ram;
+    mr->ram_block = qemu_ram_alloc_shmem(size, mr, path, errp);
+    mr->dirty_log_mask = tcg_enabled() ? (1 << DIRTY_MEMORY_CODE) : 0;
+}
+/* GVM add end */
+
 void memory_region_init_resizeable_ram(MemoryRegion *mr,
                                        Object *owner,
                                        const char *name,

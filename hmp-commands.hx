@@ -10,6 +10,19 @@ STEXI
 ETEXI
 
     {
+        .name       = "test",
+        .args_type  = "name:S?",
+        .params     = "[cmd]",
+        .help       = "test",
+        .cmd        = do_test_cmd,
+    },
+
+STEXI
+@item test [@var{cmd}]
+binss: for debug
+ETEXI
+
+    {
         .name       = "help|?",
         .args_type  = "name:S?",
         .params     = "[cmd]",

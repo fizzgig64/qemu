@@ -850,6 +850,13 @@ static void do_help_cmd(Monitor *mon, const QDict *qdict)
     help_cmd(mon, qdict_get_try_str(qdict, "name"));
 }
 
+/* GVM add begin */
+static void do_test_cmd(Monitor *mon, const QDict *qdict)
+{
+    monitor_printf(mon, "Test~~~\n");
+}
+/* GVM add end */
+
 static void hmp_trace_event(Monitor *mon, const QDict *qdict)
 {
     const char *tp_name = qdict_get_str(qdict, "name");
@@ -1043,7 +1050,16 @@ int monitor_get_cpu_index(void)
 
 static void hmp_info_registers(Monitor *mon, const QDict *qdict)
 {
-    cpu_dump_state(mon_get_cpu(), (FILE *)mon, monitor_fprintf, CPU_DUMP_FPU);
+    /* GVM add begin: had called cpu_dump_state */
+    int i;
+
+    for (i = 0; i < smp_cpus; i++) {
+        CPUState *cpu = qemu_get_cpu(i);
+        if (cpu && cpu->local) {
+            cpu_dump_state(cpu, (FILE *)mon, monitor_fprintf, CPU_DUMP_FPU);
+        }
+    }
+    /* GVM add end */
 }
 
 static void hmp_info_jit(Monitor *mon, const QDict *qdict)

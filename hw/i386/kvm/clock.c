@@ -23,6 +23,8 @@
 #include "hw/sysbus.h"
 #include "hw/kvm/clock.h"
 
+#include "interrupt-router.h" /* GVM add */
+
 #include <linux/kvm.h>
 #include <linux/kvm_para.h>
 
@@ -95,12 +97,27 @@ static void kvmclock_vm_state_change(void *opaque, int running,
 
         s->clock_valid = false;
 
+        /* GVM add begin */
+        /* BSP should get AP kvmclock and apply it to its own kvmclock */
+        if (local_cpus != smp_cpus && local_cpu_start_index != 0) {
+            struct timespec begin_ts, end_ts;
+            clock_gettime(CLOCK_MONOTONIC, &begin_ts);
+            kvmclock_fetching(&time_at_migration);
+            clock_gettime(CLOCK_MONOTONIC, &end_ts);
+            uint64_t rtt = (end_ts.tv_sec - begin_ts.tv_sec) * 1000000000 + end_ts.tv_nsec - begin_ts.tv_nsec;
+            printf("kvmclock sync RTT[%lu]\n", rtt);
+
+            time_at_migration += rtt / 2;
+        }
+        /* GVM add end */
+
         /* We can't rely on the migrated clock value, just discard it */
         if (time_at_migration) {
             s->clock = time_at_migration;
         }
 
         data.clock = s->clock;
+        printf("QEMU %d set kvmclock: %llu\n", local_cpu_start_index, data.clock); /* GVM add */
         ret = kvm_vm_ioctl(kvm_state, KVM_SET_CLOCK, &data);
         if (ret < 0) {
             fprintf(stderr, "KVM_SET_CLOCK failed: %s\n", strerror(ret));
@@ -144,6 +161,22 @@ static void kvmclock_vm_state_change(void *opaque, int running,
         s->clock_valid = true;
     }
 }
+
+/* GVM add begin */
+uint64_t kvmclock_getclock(void) {
+    struct kvm_clock_data data;
+    int ret;
+
+    /* kvm_synchronize_all_tsc(); */
+
+    ret = kvm_vm_ioctl(kvm_state, KVM_GET_CLOCK, &data);
+    if (ret < 0) {
+        fprintf(stderr, "KVM_GET_CLOCK failed: %s\n", strerror(ret));
+        abort();
+    }
+    return data.clock;
+}
+/* GVM add end */
 
 static void kvmclock_realize(DeviceState *dev, Error **errp)
 {
