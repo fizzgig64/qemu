@@ -949,6 +949,7 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_GET_MSR_FEATURES 153
 #define KVM_CAP_HYPERV_EVENTFD 154
 #define KVM_CAP_HYPERV_TLBFLUSH 155
+#define KVM_CAP_X86_DSM 163 /* GVM add (changed to 163) */
 
 #ifdef KVM_CAP_IRQ_ROUTING
 
@@ -1288,6 +1289,33 @@ struct kvm_s390_ucas_mapping {
 #define KVM_SET_DEVICE_ATTR	  _IOW(KVMIO,  0xe1, struct kvm_device_attr)
 #define KVM_GET_DEVICE_ATTR	  _IOW(KVMIO,  0xe2, struct kvm_device_attr)
 #define KVM_HAS_DEVICE_ATTR	  _IOW(KVMIO,  0xe3, struct kvm_device_attr)
+
+/* GVM add begin */
+struct kvm_dsm_params {
+	__u32 dsm_index;
+	__u32 cluster_iplist_len;
+	void *cluster_iplist;
+};
+#define KVM_DSM_ENABLE            _IOW(KVMIO,  0xf0, struct kvm_dsm_params)
+
+/* DSM memcpy in qemu should be redirected to KVM to keep DSM page privilege consistent. */
+struct kvm_dsm_memcpy {
+	bool write;
+	__u64 host_virt_addr;
+	__u64 userspace_addr;
+	__u64 length;
+};
+#define KVM_DSM_MEMCPY            _IOW(KVMIO,  0xf1, struct kvm_dsm_memcpy)
+
+/* DSM memory mapping in qemu should result in pinning the mapped pages in KVM DSM */
+struct kvm_dsm_mempin {
+	bool write;
+	bool unpin;
+	__u64 host_virt_addr;
+	__u64 length;
+};
+#define KVM_DSM_MEMPIN            _IOW(KVMIO,  0xf2, struct kvm_dsm_mempin)
+/* GVM add end */
 
 /*
  * ioctls for vcpu fds

@@ -295,4 +295,15 @@ void init_dirty_bitmap_incoming_migration(void);
 void migration_make_urgent_request(void);
 void migration_consume_urgent_request(void);
 
+/* GVM add begin */
+struct router_address {
+    char host[20];
+    char port[10];
+    int target;
+};
+
+QEMUFile * qemu_rdma_build_outcoming_file(struct router_address *addr);
+QEMUFile * qemu_rdma_build_incoming_file(struct router_address *addr);
+/* GVM add end */
+
 #endif

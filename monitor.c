@@ -1115,6 +1115,13 @@ static void do_help_cmd(Monitor *mon, const QDict *qdict)
     help_cmd(mon, qdict_get_try_str(qdict, "name"));
 }
 
+/* GVM add begin */
+static void do_test_cmd(Monitor *mon, const QDict *qdict)
+{
+    monitor_printf(mon, "Test~~~\n");
+}
+/* GVM add end */
+
 static void hmp_trace_event(Monitor *mon, const QDict *qdict)
 {
     const char *tp_name = qdict_get_str(qdict, "name");
@@ -1421,8 +1428,10 @@ static void hmp_info_registers(Monitor *mon, const QDict *qdict)
 
     if (all_cpus) {
         CPU_FOREACH(cs) {
-            monitor_printf(mon, "\nCPU#%d\n", cs->cpu_index);
-            cpu_dump_state(cs, (FILE *)mon, monitor_fprintf, CPU_DUMP_FPU);
+            if (cs->local) {
+                monitor_printf(mon, "\nCPU#%d\n", cs->cpu_index);
+                cpu_dump_state(cs, (FILE *)mon, monitor_fprintf, CPU_DUMP_FPU);
+            }
         }
     } else {
         cs = mon_get_cpu();

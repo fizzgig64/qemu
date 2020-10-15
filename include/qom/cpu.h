@@ -432,6 +432,8 @@ struct CPUState {
 
     /* track IOMMUs whose translations we've cached in the TCG TLB */
     GArray *iommu_notifiers;
+
+    bool local; /* GVM add */
 };
 
 QTAILQ_HEAD(CPUTailQ, CPUState);

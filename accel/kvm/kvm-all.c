@@ -41,11 +41,16 @@
 #include "sysemu/sev.h"
 
 #include "hw/boards.h"
+#include "hw/i386/apic_internal.h" /* GVM add */
+#include "target-i386/cpu.h" /* GVM add */
+#include "interrupt-router.h" /* GVM add */
 
 /* This check must be after config-host.h is included */
 #ifdef CONFIG_EVENTFD
 #include <sys/eventfd.h>
 #endif
+
+#include "interrupt-router.h" /* GVM add */
 
 /* KVM uses PAGE_SIZE in its definition of KVM_COALESCED_MMIO_MAX. We
  * need to use the real host PAGE_SIZE, as that's what KVM will use.
@@ -1525,6 +1530,8 @@ static int kvm_init(MachineState *ms)
     }
 
     ret = kvm_ioctl(s, KVM_GET_API_VERSION, 0);
+    
+    fprintf(stdout, "KVM API version[%d], QEMU version[%d]\n", ret, KVM_API_VERSION); /* GVM add */
     if (ret < KVM_API_VERSION) {
         if (ret >= 0) {
             ret = -EINVAL;
@@ -1725,6 +1732,46 @@ static void kvm_handle_io(uint16_t port, MemTxAttrs attrs, void *data, int direc
     int i;
     uint8_t *ptr = data;
 
+    /* GVM add begin */
+    if (local_cpus != smp_cpus)
+    {
+        // AP PIO redirect
+        if (local_cpu_start_index != 0)
+        {
+            pio_forwarding(port, attrs, data, direction, size, count, false);
+            return;
+        }
+
+        // BSP
+        for (i = 0; i < count; i++) {
+            address_space_rw(&address_space_io, port, attrs,
+                             ptr, size,
+                             direction == KVM_EXIT_IO_OUT);
+            ptr += size;
+        }
+        /*
+         * BSP special PIO broadcast
+         *  0xCF8: MCH CONFIG_ADDRESS
+         *  0xCFC: MCH CONFIG_DATA
+         *
+         *  These two ports are used to manipulate PCI configurations space.
+         *  The MCH (i.e. North Bridge) has a PCIe Bus and uses it to do
+         *  various settings, including those related to PAM and SMRAM, which
+         *  are important in the boot process. We must forward these IO
+         *  operations so that the AP MCHs are in sync with BSP.
+         *
+         *  126: vapic_write => run_on_cpu
+         *
+         *  The `KVM_EXIT_IO_OUT` means writes to these ports, the "out" here
+         *  means the data flows out from guest (and thus KVM).
+         */
+        if ((port == 0xCF8 || port == 0xCFC || port == 0xCFE || port == 126) && direction == KVM_EXIT_IO_OUT) {
+            pio_forwarding(port, attrs, data, direction, size, count, true);
+        }
+        return;
+    }
+    /* GVM add end */
+
     for (i = 0; i < count; i++) {
         address_space_rw(&address_space_io, port, attrs,
                          ptr, size,
@@ -1891,6 +1938,7 @@ int kvm_cpu_exec(CPUState *cpu)
 {
     struct kvm_run *run = cpu->kvm_run;
     int ret, run_ret;
+    struct APICCommonState *apic = APIC_COMMON(X86_CPU(cpu)->apic_state); /* GVM add */
 
     DPRINTF("kvm_cpu_exec()\n");
 
@@ -1975,12 +2023,41 @@ int kvm_cpu_exec(CPUState *cpu)
             break;
         case KVM_EXIT_MMIO:
             DPRINTF("handle_mmio\n");
-            /* Called outside BQL */
-            address_space_rw(&address_space_memory,
-                             run->mmio.phys_addr, attrs,
-                             run->mmio.data,
-                             run->mmio.len,
-                             run->mmio.is_write);
+            /* GVM add begin: used to call address_space_rw */
+            if (local_cpus != smp_cpus && local_cpu_start_index != 0) {
+                /* MMIOs of APIC should be resolved in apic_io_ops
+                 * Case 1: GPA is in [0xfee00000, 0xfeefffff], this is the
+                 * address space for MSIs, and APIC MMIO space resides in this
+                 * region by default
+                 * Case 2: GPA is in [apicbase, apicbase + 0x1000], this is the
+                 * configurable APIC MMIO space
+                 */
+
+                if (((APIC_DEFAULT_ADDRESS <= run->mmio.phys_addr) &&
+                            (run->mmio.phys_addr < APIC_DEFAULT_ADDRESS + APIC_SPACE_SIZE)) ||
+                        (((apic->apicbase & MSR_IA32_APICBASE_BASE) <= run->mmio.phys_addr) &&
+                            (run->mmio.phys_addr < ((apic->apicbase & MSR_IA32_APICBASE_BASE) + 0x1000)))) {
+                    address_space_rw(&address_space_memory,
+                                     run->mmio.phys_addr, attrs,
+                                     run->mmio.data,
+                                     run->mmio.len,
+                                     run->mmio.is_write);
+                } else {
+                    mmio_forwarding(run->mmio.phys_addr, attrs,
+                                 run->mmio.data,
+                                 run->mmio.len,
+                                 run->mmio.is_write);
+                }
+            }
+            else {
+                /* Called outside BQL */
+                address_space_rw(&address_space_memory,
+                                 run->mmio.phys_addr, attrs,
+                                 run->mmio.data,
+                                 run->mmio.len,
+                                 run->mmio.is_write);
+            }
+            /* GVM add end */
             ret = 0;
             break;
         case KVM_EXIT_IRQ_WINDOW_OPEN:

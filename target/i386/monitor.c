@@ -664,8 +664,10 @@ void hmp_info_local_apic(Monitor *mon, const QDict *qdict)
         monitor_printf(mon, "No CPU available\n");
         return;
     }
-    x86_cpu_dump_local_apic_state(cs, (FILE *)mon, monitor_fprintf,
-                                  CPU_DUMP_FPU);
+    if (cs->local) { /* GVM add */
+        x86_cpu_dump_local_apic_state(cs, (FILE *)mon, monitor_fprintf,
+                                      CPU_DUMP_FPU);
+    } /* GVM add */
 }
 
 void hmp_info_io_apic(Monitor *mon, const QDict *qdict)

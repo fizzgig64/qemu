@@ -4,6 +4,8 @@
 #include "qemu-common.h"
 #include "qemu/notify.h"
 #include "qemu/host-utils.h"
+#include <sys/time.h> /* GVM add */
+#include <sys/resource.h> /* GVM add */
 
 #define NANOSECONDS_PER_SECOND 1000000000LL
 
@@ -1040,5 +1042,18 @@ static inline int64_t profile_getclock(void)
 extern int64_t tcg_time;
 extern int64_t dev_time;
 #endif
+
+/* GVM add begin */
+/* Calculate usr+sys time. */
+static inline uint64_t exec_usec(void)
+{
+    struct rusage usage;
+
+    getrusage(RUSAGE_SELF, &usage);
+
+    return usage.ru_utime.tv_sec * 1000 * 1000 + usage.ru_utime.tv_usec +
+        usage.ru_stime.tv_sec * 1000 * 1000 + usage.ru_stime.tv_usec;
+}
+/* GVM add end */
 
 #endif

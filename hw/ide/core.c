@@ -2369,6 +2369,9 @@ uint32_t ide_data_readl(void *opaque, uint32_t addr)
     uint8_t *p;
     int ret;
 
+#ifdef DEBUG_IDE
+    printf("ide: read datal addr=0x%x\n", addr);
+#endif
     /* PIO data access allowed only when DRQ bit is set. The result of a read
      * during PIO in is indeterminate, return 0 and don't move forward. */
     if (!(s->status & DRQ_STAT) || !ide_is_pio_out(s)) {

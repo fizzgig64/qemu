@@ -30,6 +30,8 @@
 #include "sysemu/sysemu.h"
 #include "chardev/char-mux.h"
 
+#include "interrupt-router.h" /* GVM add */
+
 /* MUX driver for serial I/O splitting */
 
 /* Called with chr_write_lock held.  */
@@ -150,6 +152,12 @@ static int mux_proc_byte(Chardev *chr, MuxChardev *d, int ch)
             {
                  const char *term =  "QEMU: Terminated\n\r";
                  qemu_chr_write_all(chr, (uint8_t *)term, strlen(term));
+                 /* GVM add begin */
+                 if (local_cpus != smp_cpus) {
+                     exit_forwarding();
+                     disconnect_io_router();
+                 }
+                 /* GVM add end */
                  exit(0);
                  break;
             }

@@ -591,6 +591,15 @@ void memory_region_init_ram_shared_nomigrate(MemoryRegion *mr,
                                              bool share,
                                              Error **errp);
 
+/* GVM add begin */
+void memory_region_init_shram(MemoryRegion *mr,
+                            struct Object *owner,
+                            const char *name,
+                            uint64_t size,
+                            const char *path,
+                            Error **errp);
+/* GVM add end */
+
 /**
  * memory_region_init_resizeable_ram:  Initialize memory region with resizeable
  *                                     RAM.  Accesses into the region will
@@ -1997,7 +2006,8 @@ bool address_space_access_valid(AddressSpace *as, hwaddr addr, int len,
  * @attrs: memory attributes
  */
 void *address_space_map(AddressSpace *as, hwaddr addr,
-                        hwaddr *plen, bool is_write, MemTxAttrs attrs);
+                        hwaddr *plen, bool is_write, MemTxAttrs attrs,
+                        bool dsm_pin, bool *is_dsm); /* GVM add: is_dsm */
 
 /* address_space_unmap: Unmaps a memory region previously mapped by address_space_map()
  *
@@ -2011,7 +2021,8 @@ void *address_space_map(AddressSpace *as, hwaddr addr,
  * @is_write: indicates the transfer direction
  */
 void address_space_unmap(AddressSpace *as, void *buffer, hwaddr len,
-                         int is_write, hwaddr access_len);
+                         int is_write, hwaddr access_len,
+                         bool dsm_unpin); /* GVM add: dsm_unpin */
 
 
 /* Internal functions, part of the implementation of address_space_read.  */
@@ -2040,6 +2051,11 @@ static inline bool memory_access_is_direct(MemoryRegion *mr, bool is_write)
                memory_region_is_romd(mr);
     }
 }
+
+/* GVM add begin */
+#include "sysemu/kvm.h"
+#include "sysemu/sysemu.h"
+/* GVM add end */
 
 /**
  * address_space_read: read from an address space.
@@ -2070,7 +2086,9 @@ MemTxResult address_space_read(AddressSpace *as, hwaddr addr,
             fv = address_space_to_flatview(as);
             l = len;
             mr = flatview_translate(fv, addr, &addr1, &l, false, attrs);
-            if (len == l && memory_access_is_direct(mr, false)) {
+            if (len == l && memory_access_is_direct(mr, false)
+                && (!kvm_enabled() || local_cpus == smp_cpus || shm_path != NULL) /* GVM add */
+            ) {
                 ptr = qemu_map_ram_ptr(mr->ram_block, addr1);
                 memcpy(buf, ptr, len);
             } else {

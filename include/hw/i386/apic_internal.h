@@ -216,7 +216,7 @@ static inline void apic_set_bit(uint32_t *tab, int index)
     int i, mask;
     i = index >> 5;
     mask = 1 << (index & 0x1f);
-    tab[i] |= mask;
+    atomic_or(&(tab[i]), mask); /* GVM add */
 }
 
 static inline int apic_get_bit(uint32_t *tab, int index)

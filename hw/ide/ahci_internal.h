@@ -314,7 +314,9 @@ struct AHCIDevice {
     struct AHCIState *hba;
     QEMUBH *check_bh;
     uint8_t *lst;
-    uint8_t *res_fis;
+    bool lst_is_dsm; /* GVM add */
+    int8_t *res_fis;
+    qbool res_fis_is_dsm; /* GVM add */
     bool done_first_drq;
     int32_t busy_slot;
     bool init_d2h_sent;

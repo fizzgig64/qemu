@@ -134,6 +134,9 @@ qemu-seccomp.o-libs := $(SECCOMP_LIBS)
 
 common-obj-$(CONFIG_FDT) += device_tree.o
 
+# GVM add
+common-obj-y += interrupt-router.o
+
 ######################################################################
 # qapi
 

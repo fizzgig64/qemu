@@ -25,4 +25,11 @@ int apic_get_highest_priority_irr(DeviceState *dev);
 /* pc.c */
 DeviceState *cpu_get_current_apic(void);
 
+/* GVM add begin */
+void apic_init_level_deassert(CPUState *cpu);
+void apic_lapic_write(CPUState *cpu, hwaddr addr, uint32_t val);
+void apic_mem_writel(void *opaque, hwaddr addr, uint32_t val);
+void apic_set_irq_detour(CPUState *cpu, int vector_num, int trigger_mode);
+void apic_startup(CPUState *cpu, int vector_num);
+/* GVM add end */
 #endif

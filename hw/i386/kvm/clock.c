@@ -25,6 +25,8 @@
 #include "hw/kvm/clock.h"
 #include "qapi/error.h"
 
+#include "interrupt-router.h" /* GVM add */
+
 #include <linux/kvm.h>
 #include "standard-headers/asm-x86/kvm_para.h"
 
@@ -164,6 +166,21 @@ static void kvmclock_vm_state_change(void *opaque, int running,
          */
         if (!s->clock_is_reliable) {
             uint64_t pvclock_via_mem = kvmclock_current_nsec(s);
+
+            /* GVM add begin */
+            /* BSP should get AP kvmclock and apply it to its own kvmclock */
+            if (local_cpus != smp_cpus && local_cpu_start_index != 0) {
+                struct timespec begin_ts, end_ts;
+                clock_gettime(CLOCK_MONOTONIC, &begin_ts);
+                kvmclock_fetching(&pvclock_via_mem);
+                clock_gettime(CLOCK_MONOTONIC, &end_ts);
+                uint64_t rtt = (end_ts.tv_sec - begin_ts.tv_sec) * 1000000000 + end_ts.tv_nsec - begin_ts.tv_nsec;
+                printf("kvmclock sync RTT[%lu]\n", rtt);
+
+                pvclock_via_mem += rtt / 2;
+            }
+            /* GVM add end */
+
             /* We can't rely on the saved clock value, just discard it */
             if (pvclock_via_mem) {
                 s->clock = pvclock_via_mem;
@@ -173,6 +190,7 @@ static void kvmclock_vm_state_change(void *opaque, int running,
         s->clock_valid = false;
 
         data.clock = s->clock;
+        printf("QEMU %d set kvmclock: %llu\n", local_cpu_start_index, data.clock); /* GVM add */
         ret = kvm_vm_ioctl(kvm_state, KVM_SET_CLOCK, &data);
         if (ret < 0) {
             fprintf(stderr, "KVM_SET_CLOCK failed: %s\n", strerror(ret));
@@ -208,6 +226,22 @@ static void kvmclock_vm_state_change(void *opaque, int running,
         s->clock_valid = true;
     }
 }
+
+/* GVM add begin */
+uint64_t kvmclock_getclock(void) {
+    struct kvm_clock_data data;
+    int ret;
+
+    /* kvm_synchronize_all_tsc(); */
+
+    ret = kvm_vm_ioctl(kvm_state, KVM_GET_CLOCK, &data);
+    if (ret < 0) {
+        fprintf(stderr, "KVM_GET_CLOCK failed: %s\n", strerror(ret));
+        abort();
+    }
+    return data.clock;
+}
+/* GVM add end */
 
 static void kvmclock_realize(DeviceState *dev, Error **errp)
 {
