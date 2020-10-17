@@ -194,14 +194,14 @@ static void map_page(AddressSpace *as, uint8_t **ptr, uint64_t addr,
 
     if (*ptr) {
         /* GVM add _internal and false to the end */
-        dma_memory_unmap_internal(as, *ptr, len, DMA_DIRECTION_FROM_DEVICE, len, false);
+        dma_memory_unmap_internal(as, *ptr, len, DMA_DIRECTION_FROM_DEVICE, len, DSM_NO_UNPIN);
     }
 
     /* GVM add _internal and false, is_dsm to the end */
-    *ptr = dma_memory_map_internal(as, addr, &len, DMA_DIRECTION_FROM_DEVICE, false, is_dsm);
+    *ptr = dma_memory_map_internal(as, addr, &len, DMA_DIRECTION_FROM_DEVICE, DSM_NO_PIN, is_dsm);
     if (len < wanted) {
         /* GVM add _internal and false to the end */
-        dma_memory_unmap_internal(as, *ptr, len, DMA_DIRECTION_FROM_DEVICE, len, false);
+        dma_memory_unmap_internal(as, *ptr, len, DMA_DIRECTION_FROM_DEVICE, len, DSM_NO_UNPIN);
         *ptr = NULL;
     }
 }

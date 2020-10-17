@@ -65,6 +65,11 @@
 
 //#define DEBUG_SUBPAGE
 
+/**
+ * Common if check for GVM usage.
+ */
+#define gvm_in_use() (kvm_enabled() && local_cpus != smp_cpus && !shm_path)
+
 #if !defined(CONFIG_USER_ONLY)
 /* ram_list is read under rcu_read_lock()/rcu_read_unlock().  Writes
  * are protected by the ramlist lock.
@@ -2616,7 +2621,7 @@ static MemTxResult address_space_write_continue(AddressSpace *as, hwaddr addr,
             /* RAM case */
             ptr = qemu_map_ram_ptr(mr->ram_block, addr1);
             /* GVM add begin: place memcpy into else */
-            if (kvm_enabled() && local_cpus != smp_cpus && !shm_path) {
+            if (gvm_in_use()) {
                 struct kvm_dsm_memcpy cpy = {
                     .write = true,
                     .host_virt_addr = (__u64)ptr,
@@ -2724,7 +2729,7 @@ MemTxResult address_space_read_continue(AddressSpace *as, hwaddr addr,
             /* RAM case */
             ptr = qemu_map_ram_ptr(mr->ram_block, addr1);
             /* GVM add begin: place memcpy into else */
-            if (kvm_enabled() && local_cpus != smp_cpus && !shm_path) {
+            if (gvm_in_use()) {
                 struct kvm_dsm_memcpy cpy = {
                     .write = false,
                     .host_virt_addr = (__u64)ptr,
@@ -2994,8 +2999,8 @@ void *address_space_map(AddressSpace *as,
     void *ptr;
 
     /* GVM add begin */
-    if (is_dsm)
-        *is_dsm = false;
+    if (is_dsm != NULL)
+        *is_dsm = IS_NOT_DSM;
     /* GVM add end */
     if (len == 0) {
         return NULL;
@@ -3050,9 +3055,9 @@ void *address_space_map(AddressSpace *as,
     ptr = qemu_ram_ptr_length(mr->ram_block, base, plen);
 
     /* GVM add begin */
-    if (is_dsm && kvm_enabled() && local_cpus != smp_cpus && !shm_path)
-        *is_dsm = true;
-    if (kvm_enabled() && dsm_pin && local_cpus != smp_cpus && !shm_path) {
+    if (is_dsm != NULL && gvm_in_use())
+        *is_dsm = IS_DSM;
+    if (dsm_pin == DSM_PIN && gvm_in_use()) {
         int ret;
         struct kvm_dsm_mempin pin = {
             .write = is_write,
@@ -3094,7 +3099,7 @@ void address_space_unmap(AddressSpace *as, void *buffer, hwaddr len,
         }
 
         /* GVM add begin */
-        if (kvm_enabled() && dsm_unpin && local_cpus != smp_cpus && !shm_path) {
+        if (dsm_unpin == DSM_UNPIN && gvm_in_use()) {
             int ret;
             struct kvm_dsm_mempin pin = {
                 .write = is_write,

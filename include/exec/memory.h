@@ -386,6 +386,13 @@ void memory_region_init_ram(MemoryRegion *mr,
                             Error **errp);
 
 /* GVM add begin */
+#define DSM_NO_PIN false
+#define DSM_PIN true
+#define DSM_NO_UNPIN false
+#define DSM_UNPIN true
+#define IS_NOT_DSM false
+#define IS_DSM true
+
 void memory_region_init_shram(MemoryRegion *mr,
                             struct Object *owner,
                             const char *name,
