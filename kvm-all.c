@@ -1809,7 +1809,7 @@ static void kvm_handle_io(uint16_t port, MemTxAttrs attrs, void *data, int direc
         // AP PIO redirect
         if (local_cpu_start_index != 0)
         {
-            pio_forwarding(port, attrs, data, direction, size, count, false);
+            gvm_pio_forwarding(port, attrs, data, direction, size, count, false);
             return;
         }
 
@@ -1837,7 +1837,7 @@ static void kvm_handle_io(uint16_t port, MemTxAttrs attrs, void *data, int direc
          *  means the data flows out from guest (and thus KVM).
          */
         if ((port == 0xCF8 || port == 0xCFC || port == 0xCFE || port == 126) && direction == KVM_EXIT_IO_OUT) {
-            pio_forwarding(port, attrs, data, direction, size, count, true);
+            gvm_pio_forwarding(port, attrs, data, direction, size, count, true);
         }
         return;
     }
@@ -2032,10 +2032,10 @@ int kvm_cpu_exec(CPUState *cpu)
                                      run->mmio.len,
                                      run->mmio.is_write);
                 } else {
-                    mmio_forwarding(run->mmio.phys_addr, attrs,
-                                 run->mmio.data,
-                                 run->mmio.len,
-                                 run->mmio.is_write);
+                    gvm_mmio_forwarding(run->mmio.phys_addr, attrs,
+                                     run->mmio.data,
+                                     run->mmio.len,
+                                     run->mmio.is_write);
                 }
             }
             else {

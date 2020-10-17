@@ -218,7 +218,7 @@ static void cpu_interrupt_remote(CPUState *cpu, int mask)
     int index = cpu->cpu_index;
     if (local_cpus != smp_cpus && (index < local_cpu_start_index ||
                 index >= local_cpu_start_index + local_cpus)) {
-        special_interrupt_forwarding(index, mask);
+        gvm_special_interrupt_forwarding(index, mask);
     } else {
         cpu_interrupt(cpu, mask);
     }
@@ -235,7 +235,7 @@ static void apic_set_irq_remote(APICCommonState *s, int vector_num, int trigger_
     int index = (CPU(s->cpu))->cpu_index;
     if (local_cpus != smp_cpus && (index < local_cpu_start_index ||
                 index >= local_cpu_start_index + local_cpus)) {
-        irq_forwarding(index, vector_num, trigger_mode);
+        gvm_irq_forwarding(index, vector_num, trigger_mode);
     } else {
         apic_set_irq(s, vector_num, trigger_mode);
     }
@@ -446,7 +446,7 @@ static void apic_eoi(APICCommonState *s)
     if (!(s->spurious_vec & APIC_SV_DIRECTED_IO) && apic_get_bit(s->tmr, isrv)) {
         /* GVM add begin: had called ioapic_eoi_broadcast only */
         if (local_cpus != smp_cpus && local_cpu_start_index != 0) {
-            eoi_forwarding(isrv);
+            gvm_eoi_forwarding(isrv);
         } else {
             ioapic_eoi_broadcast(isrv);
         }
@@ -541,7 +541,7 @@ static void apic_startup_remote(CPUState *cpu, int vector_num)
     int index = cpu->cpu_index;
     if (local_cpus != smp_cpus && (index < local_cpu_start_index ||
                 index >= local_cpu_start_index + local_cpus)) {
-        startup_forwarding(index, vector_num);
+        gvm_startup_forwarding(index, vector_num);
     } else {
         apic_startup(cpu, vector_num);
     }
@@ -566,8 +566,9 @@ static void apic_init_level_deassert_remote(APICCommonState *s)
     int index = (CPU(s->cpu))->cpu_index;
     if (local_cpus != smp_cpus && (index < local_cpu_start_index ||
                 index >= local_cpu_start_index + local_cpus)) {
-        init_level_deassert_forwarding(index);
+        gvm_init_level_deassert_forwarding(index);
     } else {
+        /* A copy of the apic_init_level_deassert implementation */
         s->arb_id = s->id;
     }
 }
@@ -903,7 +904,7 @@ void apic_mem_writel(void *opaque, hwaddr addr, uint32_t val) /* GVM add: remove
             case 0x02: /* APIC ID */
             case 0x0d: /* LDR */
             case 0x0e: /* DFR */
-                lapic_forwarding(current_cpu->cpu_index, addr, val);
+                gvm_lapic_forwarding(current_cpu->cpu_index, addr, val);
                 break;
             default:
                 break;

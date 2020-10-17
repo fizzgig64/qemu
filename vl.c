@@ -1840,7 +1840,7 @@ void qemu_system_reset_request(void)
 {
     /* GVM add begin */
     if (local_cpus != smp_cpus && local_cpu_start_index == 0) {
-        reset_forwarding();
+        gvm_reset_forwarding();
     }
     /* GVM add end */
     if (no_reboot) {
@@ -1922,7 +1922,7 @@ void qemu_system_shutdown_request(void)
 {
     /* GVM add begin */
     if (local_cpus != smp_cpus && local_cpu_start_index == 0) {
-        shutdown_forwarding();
+        gvm_shutdown_forwarding();
     }
     /* GVM add end */
     trace_qemu_system_shutdown_request();

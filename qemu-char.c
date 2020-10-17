@@ -659,7 +659,7 @@ static int mux_proc_byte(CharDriverState *chr, MuxDriver *d, int ch)
 
                 /* GVM add begin */
                 if (local_cpus != smp_cpus) {
-                    exit_forwarding();
+                    gvm_exit_forwarding();
                     disconnect_io_router();
                 }
                 /* GVM add end */

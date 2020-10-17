@@ -103,7 +103,7 @@ static void kvmclock_vm_state_change(void *opaque, int running,
         if (local_cpus != smp_cpus && local_cpu_start_index != 0) {
             struct timespec begin_ts, end_ts;
             clock_gettime(CLOCK_MONOTONIC, &begin_ts);
-            kvmclock_fetching(&time_at_migration);
+            gvm_kvmclock_fetching(&time_at_migration);
             clock_gettime(CLOCK_MONOTONIC, &end_ts);
             uint64_t rtt = ((end_ts.tv_sec - begin_ts.tv_sec) * 1000000000) + end_ts.tv_nsec - begin_ts.tv_nsec;
             printf("GVM: remote kvmclock: %lu\n", time_at_migration);

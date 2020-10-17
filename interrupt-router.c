@@ -205,6 +205,12 @@ static void *io_router_loop(void *arg)
                 count = qemu_get_be32(req_file);
                 data = malloc(count * size);
                 qemu_get_buffer(req_file, data, count * size);
+                // Very noisy
+                //pr_debug("GVM: type=PIO cpu_index=%d port=%u direction=%u size=%u count=%u\n", cpu_index, port, direction, size, count);
+                /**
+                 * to AP:  lots of 3320/3324, direction=1; one 126
+                 * to BSP: several 1026 (direction=1, size=1)
+                 */
 
                 kvm_handle_remote_io(port, attrs, data, direction, size, count);
 
@@ -224,6 +230,27 @@ static void *io_router_loop(void *arg)
                 data = malloc(len);
                 qemu_get_buffer(req_file, data, len);
 
+                /**
+                 * This happens over-and-over on the BSP while waiting at the login prompt.
+                 * GVM: type=MMIO cpu_index=1 addr=4273733840 len=4 // MMIO is always AP->BSP
+                 * GVM: type=MMIO cpu_index=1 addr=4273733640 len=4
+                 * GVM: type=MMIO cpu_index=1 addr=4273733824 len=4
+                 * GVM: type=MMIO cpu_index=1 addr=4273733848 len=4
+                 * GVM: type=MMIO cpu_index=1 addr=4273733640 len=4
+                 * GVM: type=IOAPIC cpu_index=-1 isrv=59
+                 * 
+                 * Occasional GVM: type=FINT cpu_index=0 vector_num=253 trigger_mode=0
+                 * 
+                 * On the AP:
+                 * GVM: type=FINT cpu_index=1 vector_num=59 trigger_mode=1
+                 * GVM: type=FINT cpu_index=1 vector_num=253 trigger_mode=0
+                 * GVM: type=FINT cpu_index=1 vector_num=63 trigger_mode=0
+                 * [...] // severaml more 63
+                 * GVM: type=FINT cpu_index=1 vector_num=253 trigger_mode=0
+                 */
+
+                pr_debug("GVM: type=MMIO cpu_index=%d addr=%u len=%d\n", cpu_index, addr, len);
+
                 address_space_rw(&address_space_memory, addr, attrs, data, len, is_write);
 
                if (!is_write) {
@@ -238,31 +265,43 @@ static void *io_router_loop(void *arg)
                 /* Any CPU broadcast to others */
                 addr = qemu_get_be64(req_file);
                 val = qemu_get_be32(req_file);
+                pr_debug("GVM: type=LAPIC cpu_index=%d addr=%u val=%u\n", cpu_index, addr, val);
+
                 apic_lapic_write(current_cpu, addr, val);
                 break;
             case SPECIAL_INT:
                 /* Any CPU send to target CPUs of a multicast/broadcast of SMI/NMI/INIT */
                 mask = qemu_get_sbe32(req_file);
+                pr_debug("GVM: type=SINT cpu_index=%d mask=%d\n", cpu_index, mask);
+
                 cpu_interrupt(current_cpu, mask);
                 break;
             case SIPI:
                 /* Any CPU send to target CPUs of a multicast/broadcast of SIPI */
                 vector_num = qemu_get_sbe32(req_file);
+                pr_debug("GVM: type=SIPI cpu_index=%d vector_num=%d\n", cpu_index, vector_num);
+
                 apic_startup(current_cpu, vector_num);
                 break;
             case INIT_LEVEL_DEASSERT:
                 /* Any CPU send to target CPUs of a multicast/broadcast of INIT Level De-assert */
+                pr_debug("GVM: type=INIT_LEVEL_DEASSERT cpu_index=%d\n", cpu_index);
+
                 apic_init_level_deassert(current_cpu);
                 break;
             case FIXED_INT:
                 /* Any CPU send to target CPU(s) a lowest-priority/multicast/broadcast interrupt */
                 vector_num = qemu_get_sbe32(req_file);
                 trigger_mode = qemu_get_sbe32(req_file);
+                pr_debug("GVM: type=FINT cpu_index=%d vector_num=%d trigger_mode=%d\n", cpu_index, vector_num, trigger_mode);
+
                 apic_set_irq_detour(current_cpu, vector_num, trigger_mode);
                 break;
             case IOAPIC:
                 /* AP forward to BSP */
                 isrv = qemu_get_sbe32(req_file);
+                pr_debug("GVM: type=IOAPIC cpu_index=%d isrv=%d\n", cpu_index, isrv);
+
                 ioapic_eoi_broadcast(isrv);
                 break;
 
@@ -273,12 +312,15 @@ static void *io_router_loop(void *arg)
                 break;
 
             case SHUTDOWN:
+                pr_debug("GVM: type=SHUTDOWN cpu_index=%d\n", cpu_index);
                 qemu_system_shutdown_request();
                 break;
             case RESET:
+                pr_debug("GVM: type=RESET cpu_index=%d\n", cpu_index);
                 qemu_system_reset_request();
                 break;
             case EXIT:
+                pr_debug("GVM: type=EXIT cpu_index=%d\n", cpu_index);
                 exit(0);
                 break;
 
@@ -696,7 +738,7 @@ void start_io_router(void)
  * APs to BSP. (except for PIOs to PCI configuration space)
  * TODO: support the conceptial "Virtual PCI-e Bus". @jinzhang
  */
-void pio_forwarding(uint16_t port, MemTxAttrs attrs, void *data, int direction,
+void gvm_pio_forwarding(uint16_t port, MemTxAttrs attrs, void *data, int direction,
                           int size, uint32_t count, bool broadcast)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
@@ -766,7 +808,7 @@ void pio_forwarding(uint16_t port, MemTxAttrs attrs, void *data, int direction,
  * Currently we put all devices on QEMU 0, so we only need to forward MMIOs on APs to BSP.
  * TODO: support the conceptial "Virtual PCI-e Bus". @jinzhang
  */
-void mmio_forwarding(hwaddr addr, MemTxAttrs attrs, uint8_t *data, int len, bool is_write)
+void gvm_mmio_forwarding(hwaddr addr, MemTxAttrs attrs, uint8_t *data, int len, bool is_write)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
 
@@ -801,7 +843,7 @@ void mmio_forwarding(hwaddr addr, MemTxAttrs attrs, uint8_t *data, int len, bool
 }
 
 /* @broadcast */
-void lapic_forwarding(int cpu_index, hwaddr addr, uint32_t val)
+void gvm_lapic_forwarding(int cpu_index, hwaddr addr, uint32_t val)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
     QEMUFile *io_connect_file;
@@ -826,7 +868,7 @@ void lapic_forwarding(int cpu_index, hwaddr addr, uint32_t val)
 }
 
 /* @unicast: current CPU -> dest CPU (CPU No. cpu_index) */
-void special_interrupt_forwarding(int cpu_index, int mask)
+void gvm_special_interrupt_forwarding(int cpu_index, int mask)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
     QEMUFile *io_connect_file = req_files[cpu_index / local_cpus];
@@ -841,7 +883,7 @@ void special_interrupt_forwarding(int cpu_index, int mask)
 }
 
 /* @unicast: current CPU -> dest CPU (CPU No. cpu_index) */
-void startup_forwarding(int cpu_index, int vector_num)
+void gvm_startup_forwarding(int cpu_index, int vector_num)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
     QEMUFile *io_connect_file = req_files[cpu_index / local_cpus];
@@ -856,7 +898,7 @@ void startup_forwarding(int cpu_index, int vector_num)
 }
 
 /* @unicast: current CPU -> dest CPU (CPU No. cpu_index) */
-void init_level_deassert_forwarding(int cpu_index)
+void gvm_init_level_deassert_forwarding(int cpu_index)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
     QEMUFile *io_connect_file = req_files[cpu_index / local_cpus];
@@ -870,7 +912,7 @@ void init_level_deassert_forwarding(int cpu_index)
 }
 
 /* @unicast: current CPU -> dest CPU (CPU No. cpu_index) */
-void irq_forwarding(int cpu_index, int vector_num, int trigger_mode)
+void gvm_irq_forwarding(int cpu_index, int vector_num, int trigger_mode)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
     QEMUFile *io_connect_file = req_files[cpu_index / local_cpus];
@@ -886,7 +928,7 @@ void irq_forwarding(int cpu_index, int vector_num, int trigger_mode)
 }
 
 /* @unicast: AP -> BSP (i.e. QEMU[0]) */
-void eoi_forwarding(int isrv)
+void gvm_eoi_forwarding(int isrv)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
     QEMUFile *io_connect_file = req_files[0];
@@ -900,7 +942,7 @@ void eoi_forwarding(int isrv)
 }
 
 /* @broadcast */
-void shutdown_forwarding(void)
+void gvm_shutdown_forwarding(void)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
     QEMUFile *io_connect_file;
@@ -919,7 +961,7 @@ void shutdown_forwarding(void)
 }
 
 /* @broadcast */
-void reset_forwarding(void)
+void gvm_reset_forwarding(void)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
     QEMUFile *io_connect_file;
@@ -938,7 +980,7 @@ void reset_forwarding(void)
 }
 
 /* @broadcast */
-void exit_forwarding(void)
+void gvm_exit_forwarding(void)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
     QEMUFile *io_connect_file;
@@ -956,7 +998,7 @@ void exit_forwarding(void)
     qemu_mutex_unlock(&io_forwarding_mutex);
 }
 
-void kvmclock_fetching(uint64_t *kvmclock)
+void gvm_kvmclock_fetching(uint64_t *kvmclock)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
 
