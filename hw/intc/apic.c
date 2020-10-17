@@ -839,12 +839,12 @@ static void apic_send_msi(MSIMessage *msi)
     /* XXX: Ignore redirection hint. */
     /* GVM add begin: used to call apic_deliver_irq */
     if (vector < 16) {
-        printf("error: msi send vector in range 0-15\n");
+        printf("GVM: error: MSI send vector %d in unsupported range 0-15\n", vector);
         if (dev) {
             APIC(dev)->esr |= APIC_ESR_RECV_ACCEPT;
             apic_local_deliver(APIC(dev), APIC_LVT_ERROR);
         } else {
-            printf("error: cannot find current apic\n");
+            printf("GVM: error: cannot find current APIC\n");
         }
     } else {
         apic_deliver_irq(dest, dest_mode, delivery, vector, trigger_mode);
@@ -893,7 +893,7 @@ void apic_mem_writel(void *opaque, hwaddr addr, uint32_t val) /* GVM add: remove
     /* keep sync of some LAPIC states */
     if (local_cpus != smp_cpus) {
         if (current_cpu == NULL) {
-            printf("fatal: unknown lapic modification\n");
+            printf("GVM: fatal: unknown LAPIC modification\n");
             abort();
         }
 

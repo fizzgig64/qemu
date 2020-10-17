@@ -3713,29 +3713,29 @@ QEMUFile * qemu_rdma_build_incoming_file(struct router_address *addr)
 
     ret = qemu_rdma_dest_init(rdma, &local_err);
     if (ret) {
-        printf("RDMA init fail on %s:%s\n", addr->host, addr->port);
+        printf("GVM: RDMA init fail on %s:%s\n", addr->host, addr->port);
         return NULL;
     }
 
-    printf("RDMA listen to %s:%s\n", addr->host, addr->port);
+    printf("GVM: RDMA listen to %s:%s\n", addr->host, addr->port);
 
     ret = rdma_listen(rdma->listen_id, 5);
 
     if (ret) {
-        printf("RDMA listen fail on %s:%s\n", addr->host, addr->port);
+        printf("GVM: RDMA listen fail on %s:%s\n", addr->host, addr->port);
         return NULL;
     }
 
     ret = qemu_rdma_accept(rdma);
     if (ret) {
-        printf("RDMA accept fail on %s:%s\n", addr->host, addr->port);
+        printf("GVM: RDMA accept fail on %s:%s\n", addr->host, addr->port);
         return NULL;
     }
-    printf("RDMA accept on %s:%s\n", addr->host, addr->port);
+    printf("GVM: RDMA accept on %s:%s\n", addr->host, addr->port);
 
     f = qemu_fopen_rdma(rdma, "rb");
     if (f == NULL) {
-        printf("qemu_fopen_rdma fail on %s:%s\n", addr->host, addr->port);
+        printf("GVM: qemu_fopen_rdma fail on %s:%s\n", addr->host, addr->port);
         qemu_rdma_cleanup(rdma);
         return NULL;
     }
@@ -3760,16 +3760,16 @@ QEMUFile * qemu_rdma_build_outcoming_file(struct router_address *addr)
         if (ret == 0) {
             break;
         }
-        printf("RDMA connect to %s:%s fail, retrying...\n", addr->host, addr->port);
+        printf("GVM: RDMA connect to %s:%s fail, retrying...\n", addr->host, addr->port);
         g_free(rdma);
         sleep(1);
     }
 
-    printf("RDMA connect to %s:%s success\n", addr->host, addr->port);
+    printf("GVM: RDMA connect to %s:%s success\n", addr->host, addr->port);
 
     f = qemu_fopen_rdma(rdma, "wb");
     if (f == NULL) {
-        printf("qemu_fopen_rdma fail on %s:%s\n", addr->host, addr->port);
+        printf("GVM: qemu_fopen_rdma fail on %s:%s\n", addr->host, addr->port);
         qemu_rdma_cleanup(rdma);
         return NULL;
     }

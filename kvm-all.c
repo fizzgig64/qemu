@@ -1611,18 +1611,18 @@ static int kvm_init(MachineState *ms)
 
     ret = kvm_ioctl(s, KVM_GET_API_VERSION, 0);
     
-    fprintf(stdout, "KVM API version[%d], QEMU version[%d]\n", ret, KVM_API_VERSION); /* GVM add */
+    fprintf(stdout, "GVM: KVM API version: %d QEMU API version: %d\n", ret, KVM_API_VERSION); /* GVM add */
     if (ret < KVM_API_VERSION) {
         if (ret >= 0) {
             ret = -EINVAL;
         }
-        fprintf(stderr, "kvm version too old\n");
+        fprintf(stderr, "GVM: KVM version too low\n");
         goto err;
     }
 
     if (ret > KVM_API_VERSION) {
         ret = -EINVAL;
-        fprintf(stderr, "kvm version not supported\n");
+        fprintf(stderr, "GVM: KVM version unsupported\n");
         goto err;
     }
 

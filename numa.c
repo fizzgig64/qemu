@@ -432,7 +432,7 @@ static void allocate_system_memory_nonnuma(MemoryRegion *mr, Object *owner,
         memory_region_init_ram(mr, owner, name, ram_size, &error_fatal);
         /* GVM add begin */
         if (shm_path) {
-            fprintf(stdout, "Use local shared memory mode.\n");
+            fprintf(stdout, "GVM: Use local shared memory mode\n");
             fflush(stdout);
             memory_region_init_shram(mr, owner, name, ram_size, shm_path, &error_fatal);
         }

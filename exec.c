@@ -2630,7 +2630,7 @@ static MemTxResult address_space_write_continue(AddressSpace *as, hwaddr addr,
                 };
                 ret = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMCPY, &cpy);
                 if (ret < 0) {
-                    fprintf(stderr, "KVM_DSM_MEMCPY failed %d\n", ret);
+                    fprintf(stderr, "GVM: KVM_DSM_MEMCPY failed %d\n", ret);
                 }
             }
             else {
@@ -2738,7 +2738,7 @@ MemTxResult address_space_read_continue(AddressSpace *as, hwaddr addr,
                 };
                 ret = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMCPY, &cpy);
                 if (ret < 0) {
-                    fprintf(stderr, "KVM_DSM_MEMCPY failed %d\n", ret);
+                    fprintf(stderr, "GVM: KVM_DSM_MEMCPY failed %d\n", ret);
                 }
             }
             else {
@@ -3067,7 +3067,7 @@ void *address_space_map(AddressSpace *as,
         };
         ret = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
         if (ret < 0) {
-            fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", ret);
+            fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", ret);
         }
     }
     /* GVM add end */
@@ -3109,7 +3109,7 @@ void address_space_unmap(AddressSpace *as, void *buffer, hwaddr len,
             };
             ret = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
             if (ret < 0) {
-                fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", ret);
+                fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", ret);
             }
         }
         /* GVM add end */

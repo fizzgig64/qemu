@@ -732,7 +732,7 @@ static void ahci_write_fis_sdb(AHCIState *s, NCQTransferState *ncq_tfs)
     if (ad->res_fis_is_dsm) {
         ret = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
         if (ret < 0) {
-            fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", ret);
+            fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", ret);
         }
     }
     /* GVM add end */
@@ -765,7 +765,7 @@ static void ahci_write_fis_sdb(AHCIState *s, NCQTransferState *ncq_tfs)
         pin.unpin = true;
         ret = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
         if (ret < 0) {
-            fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", ret);
+            fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", ret);
         }
     }
     /* GVM add end */
@@ -795,7 +795,7 @@ static void ahci_write_fis_pio(AHCIDevice *ad, uint16_t len)
     if (ad->res_fis_is_dsm) {
         ret = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
         if (ret < 0) {
-            fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", ret);
+            fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", ret);
         }
     }
     /* GVM add end */
@@ -839,7 +839,7 @@ static void ahci_write_fis_pio(AHCIDevice *ad, uint16_t len)
         pin.unpin = true;
         ret = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
         if (ret < 0) {
-            fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", ret);
+            fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", ret);
         }
     }
     /* GVM add end */
@@ -870,7 +870,7 @@ static bool ahci_write_fis_d2h(AHCIDevice *ad)
     if (ad->res_fis_is_dsm) {
         ret = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
         if (ret < 0) {
-            fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", ret);
+            fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", ret);
         }
     }
     /* GVM add end */
@@ -911,7 +911,7 @@ static bool ahci_write_fis_d2h(AHCIDevice *ad)
         pin.unpin = true;
         ret = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
         if (ret < 0) {
-            fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", ret);
+            fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", ret);
         }
     }
     /* GVM add end */
@@ -1348,7 +1348,7 @@ static int handle_cmd(AHCIState *s, int port, uint8_t slot)
         pin.length = 32;
         r = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
         if (r < 0) {
-            fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", r);
+            fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", r);
         }
     }
     /* GVM add end */
@@ -1399,7 +1399,7 @@ done:
         pin.unpin = true;
         r = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
         if (r < 0) {
-            fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", r);
+            fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", r);
         }
     }
     /* GVM add end */
@@ -1428,7 +1428,7 @@ static void ahci_start_transfer(IDEDMA *dma)
     if (ad->lst_is_dsm) {
         ret = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
         if (ret < 0) {
-            fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", ret);
+            fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", ret);
         }
     }
     /* GVM add end */
@@ -1480,7 +1480,7 @@ out:
         pin.unpin = true;
         ret = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
         if (ret < 0) {
-            fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", ret);
+            fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", ret);
         }
     }
     /* GVM add end */
@@ -1538,7 +1538,7 @@ static int32_t ahci_dma_prepare_buf(IDEDMA *dma, int32_t limit)
     if (ad->lst_is_dsm) {
         r = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
         if (r < 0) {
-            fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", r);
+            fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", r);
         }
     }
     /* GVM add end */
@@ -1560,7 +1560,7 @@ done:
         pin.unpin = true;
         r = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
         if (r < 0) {
-            fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", r);
+            fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", r);
         }
     }
     return ret; /* GVM add: previously returned s->io_buffer_size */
@@ -1588,7 +1588,7 @@ static void ahci_commit_buf(IDEDMA *dma, uint32_t tx_bytes)
     if (ad->lst_is_dsm) {
         ret = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
         if (ret < 0) {
-            fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", ret);
+            fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", ret);
         }
     }
     /* GVM add end */
@@ -1601,7 +1601,7 @@ static void ahci_commit_buf(IDEDMA *dma, uint32_t tx_bytes)
         pin.unpin = true;
         ret = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
         if (ret < 0) {
-            fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", ret);
+            fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", ret);
         }
     }
     /* GVM add end */
@@ -1626,7 +1626,7 @@ static int ahci_dma_rw_buf(IDEDMA *dma, int is_write)
     if (ad->lst_is_dsm) {
         r = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
         if (r < 0) {
-            fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", r);
+            fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", r);
         }
     }
     /* GVM add end */
@@ -1656,7 +1656,7 @@ done:
         pin.unpin = true;
         r = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
         if (r < 0) {
-            fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", r);
+            fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", r);
         }
     }
     return ret; /* GVM add: previously returned 1 */
@@ -1873,7 +1873,7 @@ static int ahci_state_post_load(void *opaque, int version_id)
                 pin.unpin = false;
                 ret = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
                 if (ret < 0) {
-                    fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", ret);
+                    fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", ret);
                 }
             }
             /* GVM add end */
@@ -1887,7 +1887,7 @@ static int ahci_state_post_load(void *opaque, int version_id)
                 pin.unpin = true;
                 ret = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMPIN, &pin);
                 if (ret < 0) {
-                    fprintf(stderr, "KVM_DSM_MEMPIN failed %d\n", ret);
+                    fprintf(stderr, "GVM: KVM_DSM_MEMPIN failed %d\n", ret);
                 }
             }
             /* GVM add end */

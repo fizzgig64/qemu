@@ -20,9 +20,13 @@
 #include "interrupt-router.h"
 
 #define ROUTER_BUFFER_SIZE 1024
-// #define ROUTER_CONNECTION_UNIX_SOCKET
+
+
+/* #define ROUTER_CONNECTION_UNIX_SOCKET */
+
 #define ROUTER_CONNECTION_TCP
-//#define ROUTER_CONNECTION_RDMA
+
+/* #define ROUTER_CONNECTION_RDMA */
 
 /* Unix socket */
 #define ROUTER_SOCKET_PREFIX "/home/binss/work/qemu-io-router-socket"
@@ -34,7 +38,8 @@
 #define CPU_INDEX_ANY -1
 
 /* RDMA */
-//#define ROUTER_RDMA_DEBUG
+/* #define ROUTER_RDMA_DEBUG */
+
 static char **router_hosts = NULL;
 static uint32_t router_hosts_num = 0;
 
@@ -278,7 +283,7 @@ static void *io_router_loop(void *arg)
                 break;
 
             default:
-                printf("unknown type[%u]\n", type);
+                printf("GVM: Unknown IOR type: %u\n", type);
                 exit(1);
         }
 
@@ -328,7 +333,7 @@ static int get_rdma_router_address(int target, int role, struct router_address *
             port = qemu_nums * target * 2 + qemu_index * 2 + 1;
             break;
         default:
-            printf("get_rdma_router_address failed. role %d is illegal\n", role);
+            printf("GVM: get_rdma_router_address failed: role %d is illegal\n", role);
             return -EINVAL;
     }
 
@@ -352,7 +357,7 @@ static void qemu_io_router_thread_run_rdma(void)
         }
         ret = get_rdma_router_address(i, RDMA_LISTEN, &addr);
         if (ret) {
-            printf("get_router_address failed, ret: %d\n", ret);
+            printf("GVM: get_router_address failed: %d\n", ret);
             return;
         }
         printf("QEMU %d wait for RDMA connection on %s:%s\n", i, addr.host, addr.port);
@@ -360,11 +365,11 @@ static void qemu_io_router_thread_run_rdma(void)
         listen_rsp_files[i] = qemu_rdma_build_incoming_file(&addr);
         ret = get_rdma_router_address(i, RDMA_CONNECT_REVERSE, &addr);
         if (ret) {
-            printf("get_router_address failed, ret: %d\n", ret);
+            printf("GVM: get_router_address failed: %d\n", ret);
             return;
         }
         rsp_files[i] = qemu_rdma_build_incoming_file(&addr);
-        printf("QEMU %d wait for RDMA connection on %s:%s\n", i, addr.host, addr.port);
+        printf("GVM: QEMU %d wait for RDMA connection on %s:%s\n", i, addr.host, addr.port);
     }
 
     while (done < qemu_nums - 1) {
@@ -400,20 +405,20 @@ static void connect_io_router_rdma(void)
         }
         ret = get_rdma_router_address(i, RDMA_CONNECT, &addr);
         if (ret) {
-            printf("get_router_address failed, ret: %d\n", ret);
+            printf("GVM: get_router_address failed: %d\n", ret);
             return;
         }
         req_files[i] = qemu_rdma_build_outcoming_file(&addr);
-        printf("QEMU %d connect to %d %s:%s success\n", local_index, i, addr.host, addr.port);
-        printf("req_files[%d] connect to %s:%s success\n", i, addr.host, addr.port);
+        printf("GVM: QEMU %d connect to %d %s:%s success\n", local_index, i, addr.host, addr.port);
+        printf("GVM: req_files %d connect to %s:%s success\n", i, addr.host, addr.port);
 
         ret = get_rdma_router_address(i, RDMA_LISTEN_REVERSE, &addr);
         if (ret) {
-            printf("get_router_address failed, ret: %d\n", ret);
+            printf("GVM: get_router_address failed: %d\n", ret);
             return;
         }
         listen_req_files[i] = qemu_rdma_build_outcoming_file(&addr);
-        printf("QEMU %d connect to QEMU %d %s:%s success\n", local_index, i, addr.host, addr.port);
+        printf("GVM: QEMU %d connect to QEMU %d %s:%s success\n", local_index, i, addr.host, addr.port);
     }
 
     bool *done_list = (bool *)g_malloc0(qemu_nums * sizeof(bool));
@@ -423,7 +428,7 @@ static void connect_io_router_rdma(void)
             if (rsp_files[i] && !done_list[i]) {
                 done_list[i] = true;
                 done++;
-                printf("connect io router %d done\n", i);
+                printf("GVM: connect IOR %d done\n", i);
             }
         }
     }
@@ -433,6 +438,7 @@ static void connect_io_router_rdma(void)
 #else /* ROUTER_CONNECTION_RDMA */
 
 #ifdef ROUTER_CONNECTION_TCP
+
 static int get_router_address(int target, struct router_address *addr)
 {
     if (addr == NULL) {
@@ -448,6 +454,7 @@ static int get_router_address(int target, struct router_address *addr)
     addr->target = target;
     return 0;
 }
+
 #endif
 
 static gboolean io_router_accept_connection(QIOChannel *ioc,
@@ -461,7 +468,7 @@ static gboolean io_router_accept_connection(QIOChannel *ioc,
     sioc = qio_channel_socket_accept(QIO_CHANNEL_SOCKET(ioc),
                                      &err);
     if (!sioc) {
-        error_report("could not accept io router connection (%s)",
+        error_report("GVM: could not accept io router connection (%s)",
                      error_get_pretty(err));
         exit(1);
     }
@@ -496,7 +503,7 @@ static void connect_io_router_single(int index)
     connect_addr->type = SOCKET_ADDRESS_KIND_UNIX;
     connect_addr->u.q_unix.data = g_new0(UnixSocketAddress, 1);
     connect_addr->u.q_unix.data->path = g_strdup(sockpath);
-    printf("connect socket_path: %s\n", sockpath);
+    printf("GVM: connect socket_path: %s\n", sockpath);
 #endif
 
 #ifdef ROUTER_CONNECTION_TCP
@@ -506,7 +513,7 @@ static void connect_io_router_single(int index)
 
     ret = get_router_address(index, &addr);
     if (ret) {
-        printf("get_router_address failed, ret: %d\n", ret);
+        printf("GVM: get_router_address failed: %d\n", ret);
         return;
     }
     connect_addr->type = SOCKET_ADDRESS_KIND_INET;
@@ -515,13 +522,13 @@ static void connect_io_router_single(int index)
         .host = g_strdup(addr.host),
         .port = g_strdup(addr.port), /* NULL == Auto-select */
     };
-    printf("connecting %s:%s\n", addr.host, addr.port);
+    printf("GVM: connecting %s:%s\n", addr.host, addr.port);
 #endif
 
     channel = QIO_CHANNEL(qio_channel_socket_new());
     qio_channel_set_name(QIO_CHANNEL(channel), "io-send");
 
-    pr_debug("Connecting...\n");
+    pr_debug("GVM: Connecting...\n");
 
     while (true) {
         if (qio_channel_socket_connect_sync(QIO_CHANNEL_SOCKET(channel),
@@ -536,7 +543,7 @@ static void connect_io_router_single(int index)
 
     req_files[index] = qemu_fopen_channel_output(channel);
     rsp_files[index] = qemu_file_get_return_path(req_files[index]);
-    printf("connecting io router done\n");
+    printf("GVM: connecting IOR done\n");
 }
 #endif /* ROUTER_CONNECTION_RDMA */
 
@@ -563,7 +570,7 @@ static void *qemu_io_router_thread_run(void *arg)
     listen_addr->u.q_unix.data = g_new0(UnixSocketAddress, 1);
     listen_addr->u.q_unix.data->path = g_strdup(sockpath);
 
-    printf("QEMU %d listen on Unix socket %s\n", index, sockpath);
+    printf("GVM: QEMU %d listen on Unix socket %s\n", index, sockpath);
 #endif
 
 #ifdef ROUTER_CONNECTION_TCP
@@ -572,7 +579,7 @@ static void *qemu_io_router_thread_run(void *arg)
 
     ret = get_router_address(index, &addr);
     if (ret) {
-        printf("get_router_address failed, ret: %d\n", ret);
+        printf("GVM: get_router_address failed: %d\n", ret);
         return NULL;
     }
     listen_addr->type = SOCKET_ADDRESS_KIND_INET;
@@ -581,14 +588,14 @@ static void *qemu_io_router_thread_run(void *arg)
         .host = g_strdup(addr.host),
         .port = g_strdup(addr.port), /* NULL == Auto-select */
     };
-    printf("QEMU %d listen on TCP socket %s:%s\n", index, addr.host, addr.port);
+    printf("GVM: QEMU %d listen on TCP socket %s:%s\n", index, addr.host, addr.port);
 #endif
 
     lioc = qio_channel_socket_new();
     qio_channel_set_name(QIO_CHANNEL(lioc), "io-router-listener-channel");
 
     if (qio_channel_socket_listen_sync(lioc, listen_addr, &local_err) < 0) {
-        printf("io-router listen error, exit...");
+        printf("GVM: IOR listen error...");
         object_unref(OBJECT(lioc));
         qapi_free_SocketAddress(listen_addr);
         exit(1);
@@ -607,7 +614,7 @@ static void *qemu_io_router_thread_run(void *arg)
 
 static void connect_io_router(void)
 {
-    printf("connect_io_router...\n");
+    printf("GVM: connect_io_router...\n");
 
 #ifdef ROUTER_CONNECTION_RDMA
     connect_io_router_rdma();
@@ -621,7 +628,7 @@ static void connect_io_router(void)
         }
     }
 #endif
-    printf("connect_io_router done\n");
+    printf("GVM: connect_io_router done\n");
 
 }
 
@@ -665,7 +672,9 @@ void start_io_router(void)
         error_report("invalid number of cluster iplist");
         exit(1);
     }
-    printf("QEMU nums: %d, Total CPU nums: %d, CPU per QEMU: %d\n", qemu_nums, smp_cpus, local_cpus);
+    printf("GVM: QEMU instances: %d\n", qemu_nums);
+    printf("GVM: Total CPUs: %d\n", smp_cpus);
+    printf("GVM: CPUs per instances: %d\n", local_cpus);
 
     size = qemu_nums * sizeof(QEMUFile *);
     req_files = (QEMUFile **)g_malloc0(size);

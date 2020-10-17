@@ -1391,13 +1391,13 @@ void pc_memory_init(PCMachineState *pcms,
             params.cluster_iplist = (void *) get_cluster_iplist(&params.cluster_iplist_len);
             int ret = kvm_vm_ioctl(kvm_state, KVM_DSM_ENABLE, &params);
             if (ret < 0) {
-                error_report("Enable kernel DSM failed: %s", strerror(-ret));
+                error_report("GVM: Enable kernel DSM failed: %s", strerror(-ret));
                 exit(EXIT_FAILURE);
             }
-            printf("start kvm dsm server, total memory size: %lu\n",
+            printf("GVM: start KVM DSM server: total memory size: %lu\n",
                     machine->ram_size);
         } else {
-            error_report("Could not start distributed QEMU: DSM not supported.");
+            error_report("GVM: Could not start: DSM not supported.");
             exit(EXIT_FAILURE);
         }
     }

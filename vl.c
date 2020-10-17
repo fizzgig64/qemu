@@ -4267,13 +4267,18 @@ int main(int argc, char **argv, char **envp)
         local_cpus = smp_cpus;
     }
 
-    printf("CPU Info\nTotal: %d\nLocal: %d [%d-%d]\nRemote: %d[ ",
+    printf("GVM: CPU Info\n  Total: %d\n  Local: %d [%d-%d]\n  Remote: %d [",
            smp_cpus, local_cpus, local_cpu_start_index, local_cpu_start_index +
 		   local_cpus - 1, smp_cpus - local_cpus);
+    bool multiple = false;
     for (i = 0; i < smp_cpus; i++) {
         if (i < local_cpu_start_index || i > local_cpu_start_index +
 				local_cpus - 1) {
-            printf("%d ", i);
+            if (multiple) {
+                printf(" ");
+            }
+            printf("%d", i);
+            multiple = true;
         }
     }
     printf("]\n");
