@@ -38,16 +38,21 @@
 #include "hw/irq.h"
 
 #include "hw/boards.h"
+
+#ifdef TARGET_X86_64
 #include "hw/i386/apic_internal.h" /* GVM add */
 #include "target-i386/cpu.h" /* GVM add */
 #include "interrupt-router.h" /* GVM add */
+#endif
 
 /* This check must be after config-host.h is included */
 #ifdef CONFIG_EVENTFD
 #include <sys/eventfd.h>
 #endif
 
+#ifdef TARGET_X86_64
 #include "interrupt-router.h" /* GVM add */
+#endif
 
 /* KVM uses PAGE_SIZE in its definition of KVM_COALESCED_MMIO_MAX. We
  * need to use the real host PAGE_SIZE, as that's what KVM will use.
@@ -1497,7 +1502,7 @@ static void kvm_irqchip_create(MachineState *machine, KVMState *s)
     int ret;
 
     if (kvm_check_extension(s, KVM_CAP_IRQCHIP)) {
-        ;
+        printf("GVM: kvm_check_extension=true\n");
     } else if (kvm_check_extension(s, KVM_CAP_S390_IRQCHIP)) {
         ret = kvm_vm_enable_cap(s, KVM_CAP_S390_IRQCHIP, 0);
         if (ret < 0) {
@@ -1532,6 +1537,8 @@ static void kvm_irqchip_create(MachineState *machine, KVMState *s)
     kvm_halt_in_kernel_allowed = true;
 
     kvm_init_irq_routing(s);
+
+    printf("GVM: Created kvm_kernel_irqchip\n");
 
     s->gsimap = g_hash_table_new(g_direct_hash, g_direct_equal);
 }
@@ -1757,6 +1764,8 @@ static int kvm_init(MachineState *ms)
 
     if (machine_kernel_irqchip_allowed(ms)) {
         kvm_irqchip_create(ms, s);
+    } else {
+        printf("GVM: machine_kernel_irqchip_allowed=false\n");
     }
 
     kvm_state = s;
@@ -1804,6 +1813,7 @@ static void kvm_handle_io(uint16_t port, MemTxAttrs attrs, void *data, int direc
     uint8_t *ptr = data;
 
     /* GVM add begin */
+#ifdef TARGET_X86_64
     if (local_cpus != smp_cpus)
     {
         // AP PIO redirect
@@ -1841,6 +1851,7 @@ static void kvm_handle_io(uint16_t port, MemTxAttrs attrs, void *data, int direc
         }
         return;
     }
+#endif
     /* GVM add end */
 
     for (i = 0; i < count; i++) {
@@ -1944,7 +1955,10 @@ int kvm_cpu_exec(CPUState *cpu)
 {
     struct kvm_run *run = cpu->kvm_run;
     int ret, run_ret;
+
+#ifdef TARGET_X86_64
     struct APICCommonState *apic = APIC_COMMON(X86_CPU(cpu)->apic_state); /* GVM add */
+#endif
 
     DPRINTF("kvm_cpu_exec()\n");
 
@@ -2013,6 +2027,7 @@ int kvm_cpu_exec(CPUState *cpu)
         case KVM_EXIT_MMIO:
             DPRINTF("handle_mmio\n");
             /* GVM add begin: used to call address_space_rw */
+#ifdef TARGET_X86_64
             if (local_cpus != smp_cpus && local_cpu_start_index != 0) {
                 /* MMIOs of APIC should be resolved in apic_io_ops
                  * Case 1: GPA is in [0xfee00000, 0xfeefffff], this is the
@@ -2046,6 +2061,13 @@ int kvm_cpu_exec(CPUState *cpu)
                                  run->mmio.len,
                                  run->mmio.is_write);
             }
+#else
+            address_space_rw(&address_space_memory,
+                                run->mmio.phys_addr, attrs,
+                                run->mmio.data,
+                                run->mmio.len,
+                                run->mmio.is_write);
+#endif
             /* GVM add end */
             ret = 0;
             break;

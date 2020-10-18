@@ -293,6 +293,7 @@ static void *io_router_loop(void *arg)
                 /* Any CPU send to target CPU(s) a lowest-priority/multicast/broadcast interrupt */
                 vector_num = qemu_get_sbe32(req_file);
                 trigger_mode = qemu_get_sbe32(req_file);
+                /* Most of the APIC interception happens in apic_mem_writel */
                 pr_debug("GVM: type=FINT cpu_index=%d vector_num=%d trigger_mode=%d\n", cpu_index, vector_num, trigger_mode);
 
                 apic_set_irq_detour(current_cpu, vector_num, trigger_mode);

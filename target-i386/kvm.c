@@ -1016,6 +1016,14 @@ void kvm_arch_reset_vcpu(X86CPU *cpu)
     } else {
         env->mp_state = KVM_MP_STATE_RUNNABLE;
     }
+
+    /* GVM add debug */
+    if (kvm_irqchip_in_kernel()) {
+        printf("GVM: kvm_irqchip_in_kernel=true\n");
+    } else {
+        printf("GVM: kvm_irqchip_in_kernel=false\n");
+    }
+    /* GVM add end */
 }
 
 void kvm_arch_do_init_vcpu(X86CPU *cpu)
