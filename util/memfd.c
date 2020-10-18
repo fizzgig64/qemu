@@ -34,7 +34,7 @@
 // #if defined(CONFIG_MEMFD)
 // #include <sys/memfd.h>
 
-#if defined(CONFIG_LINUX) && defined(THIS_DOES_NOT_EXIST)
+#if defined(CONFIG_LINUX) && __x86_64__
 
 #include <sys/syscall.h>
 #include <asm/unistd.h>
