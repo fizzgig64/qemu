@@ -312,7 +312,7 @@ static void *io_router_loop(void *arg)
                 break;
 
             case KVMCLOCK:
-#ifdef TARGET_X86_64
+#ifdef __x86_64__
                 kvmclock = kvmclock_getclock();
 #endif
                 qemu_put_be64(rsp_file, kvmclock);
