@@ -31,9 +31,11 @@
 
 #include "qemu/memfd.h"
 
-#ifdef CONFIG_MEMFD
-#include <sys/memfd.h>
-#elif defined CONFIG_LINUX
+// #if defined(CONFIG_MEMFD)
+// #include <sys/memfd.h>
+
+#if defined(CONFIG_LINUX) && defined(THIS_DOES_NOT_EXIST)
+
 #include <sys/syscall.h>
 #include <asm/unistd.h>
 
