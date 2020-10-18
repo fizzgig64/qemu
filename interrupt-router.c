@@ -266,7 +266,7 @@ static void *io_router_loop(void *arg)
                 addr = qemu_get_be64(req_file);
                 val = qemu_get_be32(req_file);
                 pr_debug("GVM: type=LAPIC cpu_index=%d addr=%u val=%u\n", cpu_index, addr, val);
-#ifdef TARGET_X86_64
+#ifdef __x86_64__
                 apic_lapic_write(current_cpu, addr, val);
 #endif
                 break;
@@ -281,14 +281,14 @@ static void *io_router_loop(void *arg)
                 /* Any CPU send to target CPUs of a multicast/broadcast of SIPI */
                 vector_num = qemu_get_sbe32(req_file);
                 pr_debug("GVM: type=SIPI cpu_index=%d vector_num=%d\n", cpu_index, vector_num);
-#ifdef TARGET_X86_64
+#ifdef __x86_64__
                 apic_startup(current_cpu, vector_num);
 #endif
                 break;
             case INIT_LEVEL_DEASSERT:
                 /* Any CPU send to target CPUs of a multicast/broadcast of INIT Level De-assert */
                 pr_debug("GVM: type=INIT_LEVEL_DEASSERT cpu_index=%d\n", cpu_index);
-#ifdef TARGET_X86_64
+#ifdef __x86_64__
                 apic_init_level_deassert(current_cpu);
 #endif
                 break;
@@ -298,7 +298,7 @@ static void *io_router_loop(void *arg)
                 trigger_mode = qemu_get_sbe32(req_file);
                 /* Most of the APIC interception happens in apic_mem_writel */
                 pr_debug("GVM: type=FINT cpu_index=%d vector_num=%d trigger_mode=%d\n", cpu_index, vector_num, trigger_mode);
-#ifdef
+#ifdef __x86_64__
                 apic_set_irq_detour(current_cpu, vector_num, trigger_mode);
 #endif
                 break;
@@ -306,7 +306,7 @@ static void *io_router_loop(void *arg)
                 /* AP forward to BSP */
                 isrv = qemu_get_sbe32(req_file);
                 pr_debug("GVM: type=IOAPIC cpu_index=%d isrv=%d\n", cpu_index, isrv);
-#ifdef TARGET_X86_64
+#ifdef __x86_64__
                 ioapic_eoi_broadcast(isrv);
 #endif
                 break;
