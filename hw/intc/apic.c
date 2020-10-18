@@ -39,6 +39,12 @@
 #define SYNC_TO_VAPIC                   0x2
 #define SYNC_ISR_IRR_TO_VAPIC           0x4
 
+#define gvm_is_remote_cpu(index) \
+    (local_cpus != smp_cpus && \
+        (index < local_cpu_start_index || \
+         index >= local_cpu_start_index + local_cpus) \
+    )
+
 static APICCommonState *local_apics[MAX_APICS + 1];
 
 #define TYPE_APIC "apic"
@@ -216,8 +222,7 @@ static void apic_external_nmi(APICCommonState *s)
 static void cpu_interrupt_remote(CPUState *cpu, int mask)
 {
     int index = cpu->cpu_index;
-    if (local_cpus != smp_cpus && (index < local_cpu_start_index ||
-                index >= local_cpu_start_index + local_cpus)) {
+    if (gvm_is_remote_cpu(index)) {
         gvm_special_interrupt_forwarding(index, mask);
     } else {
         cpu_interrupt(cpu, mask);
@@ -233,8 +238,7 @@ void apic_set_irq_detour(CPUState *cpu, int vector_num, int trigger_mode) {
 static void apic_set_irq_remote(APICCommonState *s, int vector_num, int trigger_mode)
 {
     int index = (CPU(s->cpu))->cpu_index;
-    if (local_cpus != smp_cpus && (index < local_cpu_start_index ||
-                index >= local_cpu_start_index + local_cpus)) {
+    if (gvm_is_remote_cpu(index)) {
         gvm_irq_forwarding(index, vector_num, trigger_mode);
     } else {
         apic_set_irq(s, vector_num, trigger_mode);
@@ -539,8 +543,7 @@ void apic_startup(CPUState *cpu, int vector_num) /* GVM add: remove static */
 static void apic_startup_remote(CPUState *cpu, int vector_num)
 {
     int index = cpu->cpu_index;
-    if (local_cpus != smp_cpus && (index < local_cpu_start_index ||
-                index >= local_cpu_start_index + local_cpus)) {
+    if (gvm_is_remote_cpu(index)) {
         gvm_startup_forwarding(index, vector_num);
     } else {
         apic_startup(cpu, vector_num);
@@ -564,8 +567,7 @@ void apic_sipi(DeviceState *dev)
 static void apic_init_level_deassert_remote(APICCommonState *s)
 {
     int index = (CPU(s->cpu))->cpu_index;
-    if (local_cpus != smp_cpus && (index < local_cpu_start_index ||
-                index >= local_cpu_start_index + local_cpus)) {
+    if (gvm_is_remote_cpu(index)) {
         gvm_init_level_deassert_forwarding(index);
     } else {
         /* A copy of the apic_init_level_deassert implementation */
