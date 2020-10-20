@@ -1,4 +1,7 @@
-#include "qemu/osdep.h"
+
+#define HW_POISON_H /* Hack to avoid POISON */
+#include "qemu/osdep.h" /* This will POISON variables */
+
 #include <linux/kvm.h>
 
 #include "qemu-common.h"
@@ -7,6 +10,7 @@
 #include "qapi/error.h"
 #include "qemu/error-report.h"
 #include "migration/migration.h"
+#include "migration/qemu-file-channel.h"
 #include "migration/qemu-file.h"
 
 #include "hw/i386/apic.h"
@@ -135,6 +139,7 @@ static void kvm_handle_remote_io(uint16_t port, MemTxAttrs attrs, void *data, in
     int i;
     uint8_t *ptr = data;
 
+    //printf("GVM-new: kvm_handle_remote_io port=%u count=%u size=%d\n", port, count, size);
     for (i = 0; i < count; i++) {
         address_space_rw(&address_space_io, port, attrs,
                          ptr, size,
@@ -268,10 +273,10 @@ static void *io_router_loop(void *arg)
                 break;
 
             case SHUTDOWN:
-                qemu_system_shutdown_request();
+                qemu_system_shutdown_request(SHUTDOWN_CAUSE_GUEST_SHUTDOWN);
                 break;
             case RESET:
-                qemu_system_reset_request();
+                qemu_system_reset_request(SHUTDOWN_CAUSE_GUEST_RESET);
                 break;
             case EXIT:
                 exit(0);
@@ -502,6 +507,8 @@ static void connect_io_router_single(int index)
 #ifdef ROUTER_CONNECTION_TCP
     int ret;
     struct router_address addr;
+    InetSocketAddress *inet;
+
     memset(&addr, 0, sizeof(addr));
 
     ret = get_router_address(index, &addr);
@@ -509,12 +516,17 @@ static void connect_io_router_single(int index)
         printf("get_router_address failed, ret: %d\n", ret);
         return;
     }
-    connect_addr->type = SOCKET_ADDRESS_KIND_INET;
+    connect_addr->type = SOCKET_ADDRESS_TYPE_INET;
+    inet = &connect_addr->u.inet;
+    inet->host = g_strdup(addr.host);
+    inet->port = g_strdup(addr.port);
+    /*
     connect_addr->u.inet.data = g_new(InetSocketAddress, 1);
     *connect_addr->u.inet.data = (InetSocketAddress) {
         .host = g_strdup(addr.host),
-        .port = g_strdup(addr.port), /* NULL == Auto-select */
+        .port = g_strdup(addr.port),
     };
+    */
     printf("connecting %s:%s\n", addr.host, addr.port);
 #endif
 
@@ -568,6 +580,8 @@ static void *qemu_io_router_thread_run(void *arg)
 
 #ifdef ROUTER_CONNECTION_TCP
     struct router_address addr;
+    InetSocketAddress *inet;
+
     memset(&addr, 0, sizeof(addr));
 
     ret = get_router_address(index, &addr);
@@ -575,12 +589,17 @@ static void *qemu_io_router_thread_run(void *arg)
         printf("get_router_address failed, ret: %d\n", ret);
         return NULL;
     }
-    listen_addr->type = SOCKET_ADDRESS_KIND_INET;
+    listen_addr->type = SOCKET_ADDRESS_TYPE_INET;
+    inet = &listen_addr->u.inet;
+    inet->host = g_strdup(addr.host);
+    inet->port = g_strdup(addr.port);
+    /*
     listen_addr->u.inet.data = g_new(InetSocketAddress, 1);
     *listen_addr->u.inet.data = (InetSocketAddress) {
         .host = g_strdup(addr.host),
-        .port = g_strdup(addr.port), /* NULL == Auto-select */
+        .port = g_strdup(addr.port),
     };
+    */
     printf("QEMU %d listen on TCP socket %s:%s\n", index, addr.host, addr.port);
 #endif
 

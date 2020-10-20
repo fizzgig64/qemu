@@ -42,7 +42,7 @@
 
 #include "hw/boards.h"
 #include "hw/i386/apic_internal.h" /* GVM add */
-#include "target-i386/cpu.h" /* GVM add */
+#include "target/i386/cpu.h" /* GVM add */
 #include "interrupt-router.h" /* GVM add */
 
 /* This check must be after config-host.h is included */
@@ -1744,6 +1744,7 @@ static void kvm_handle_io(uint16_t port, MemTxAttrs attrs, void *data, int direc
 
         // BSP
         for (i = 0; i < count; i++) {
+            //printf("GVM-new: kvm_handle_io port=%u count=%u size=%d\n", port, count, size);
             address_space_rw(&address_space_io, port, attrs,
                              ptr, size,
                              direction == KVM_EXIT_IO_OUT);

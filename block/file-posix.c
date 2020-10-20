@@ -730,6 +730,8 @@ static int raw_check_lock_bytes(int fd, uint64_t perm, uint64_t shared_perm,
     int ret;
     int i;
 
+    return 0; /* GVM hacks added */
+
     PERM_FOREACH(i) {
         int off = RAW_LOCK_SHARED_BASE + i;
         uint64_t p = 1ULL << i;

@@ -29,7 +29,7 @@
 #include "hw/i386/pc.h"
 #include "hw/i386/apic-msidef.h"
 #include "qapi/error.h"
-#include "target-i386/cpu.h" /* GVM add */
+#include "target/i386/cpu.h" /* GVM add */
 #include "interrupt-router.h" /* GVM add */
 
 #define MAX_APICS 255

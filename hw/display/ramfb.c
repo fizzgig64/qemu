@@ -51,7 +51,8 @@ static void ramfb_fw_cfg_write(void *dev, off_t offset, size_t len)
             s->width, s->height, addr);
     framebuffer = address_space_map(&address_space_memory,
                                     addr, &length, false,
-                                    MEMTXATTRS_UNSPECIFIED);
+                                    MEMTXATTRS_UNSPECIFIED,
+                                    true, NULL); /* GVM this might cause an issue */
     if (!framebuffer || length < stride * s->height) {
         s->width = 0;
         s->height = 0;

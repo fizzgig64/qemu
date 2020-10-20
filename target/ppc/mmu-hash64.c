@@ -432,7 +432,8 @@ const ppc_hash_pte64_t *ppc_hash64_map_hptes(PowerPCCPU *cpu,
     }
 
     hptes = address_space_map(CPU(cpu)->as, base + pte_offset, &plen, false,
-                              MEMTXATTRS_UNSPECIFIED);
+                              MEMTXATTRS_UNSPECIFIED,
+                              false, NULL); /* GVM this may cause an issue */
     if (plen < (n * HASH_PTE_SIZE_64)) {
         hw_error("%s: Unable to map all requested HPTEs\n", __func__);
     }

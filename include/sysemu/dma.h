@@ -145,7 +145,8 @@ static inline void dma_memory_unmap(AddressSpace *as,
                                     DMADirection dir, dma_addr_t access_len)
 {
     address_space_unmap(as, buffer, (hwaddr)len,
-                        dir == DMA_DIRECTION_FROM_DEVICE, access_len, true); /* GVM add: true */
+                        dir == DMA_DIRECTION_FROM_DEVICE, access_len,
+                        true); /* GVM add: true */
 }
 
 /* GVM add begin */
@@ -156,7 +157,9 @@ static inline void *dma_memory_map_internal(AddressSpace *as,
     hwaddr xlen = *len;
     void *p;
 
-    p = address_space_map(as, addr, &xlen, dir == DMA_DIRECTION_FROM_DEVICE, dsm_pin, is_dsm);
+    p = address_space_map(as, addr, &xlen, dir == DMA_DIRECTION_FROM_DEVICE,
+                          MEMTXATTRS_UNSPECIFIED,
+                          dsm_pin, is_dsm);
     *len = xlen;
     return p;
 }
@@ -166,7 +169,8 @@ static inline void dma_memory_unmap_internal(AddressSpace *as,
                                     DMADirection dir, dma_addr_t access_len, bool dsm_unpin)
 {
     address_space_unmap(as, buffer, (hwaddr)len,
-                        dir == DMA_DIRECTION_FROM_DEVICE, access_len, dsm_unpin);
+                        dir == DMA_DIRECTION_FROM_DEVICE, access_len,
+                        dsm_unpin);
 }
 /* GVM add end */
 
