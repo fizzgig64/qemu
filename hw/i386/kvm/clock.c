@@ -166,16 +166,18 @@ static void kvmclock_vm_state_change(void *opaque, int running,
          */
         if (!s->clock_is_reliable) {
             uint64_t pvclock_via_mem = kvmclock_current_nsec(s);
+            printf("GVM: local kvmclock: %lu\n", pvclock_via_mem);
 
             /* GVM add begin */
             /* BSP should get AP kvmclock and apply it to its own kvmclock */
             if (local_cpus != smp_cpus && local_cpu_start_index != 0) {
                 struct timespec begin_ts, end_ts;
                 clock_gettime(CLOCK_MONOTONIC, &begin_ts);
-                kvmclock_fetching(&pvclock_via_mem);
+                gvm_kvmclock_fetching(&pvclock_via_mem);
                 clock_gettime(CLOCK_MONOTONIC, &end_ts);
                 uint64_t rtt = (end_ts.tv_sec - begin_ts.tv_sec) * 1000000000 + end_ts.tv_nsec - begin_ts.tv_nsec;
-                printf("kvmclock sync RTT[%lu]\n", rtt);
+                printf("GVM: remote kvmclock: %lu\n", pvclock_via_mem);
+                printf("GVM: kvmclock sync RTT: %lu\n", rtt);
 
                 pvclock_via_mem += rtt / 2;
             }
@@ -190,7 +192,7 @@ static void kvmclock_vm_state_change(void *opaque, int running,
         s->clock_valid = false;
 
         data.clock = s->clock;
-        printf("QEMU %d set kvmclock: %llu\n", local_cpu_start_index, data.clock); /* GVM add */
+        printf("GVM: CPUSs [%d-%d] set kvmclock: %llu\n", local_cpu_start_index, local_cpu_start_index + local_cpus, data.clock); /* GVM add */
         ret = kvm_vm_ioctl(kvm_state, KVM_SET_CLOCK, &data);
         if (ret < 0) {
             fprintf(stderr, "KVM_SET_CLOCK failed: %s\n", strerror(ret));
@@ -236,7 +238,7 @@ uint64_t kvmclock_getclock(void) {
 
     ret = kvm_vm_ioctl(kvm_state, KVM_GET_CLOCK, &data);
     if (ret < 0) {
-        fprintf(stderr, "KVM_GET_CLOCK failed: %s\n", strerror(ret));
+        fprintf(stderr, "GVM: KVM_GET_CLOCK failed: %s\n", strerror(ret));
         abort();
     }
     return data.clock;

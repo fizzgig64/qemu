@@ -1135,8 +1135,7 @@ void run_on_cpu(CPUState *cpu, run_on_cpu_func func, run_on_cpu_data data)
 {
     /* GVM add begin */
     if (!cpu->local) {
-        printf("run_on_cpu: not local CPU, ignore here. "
-               "This could be a latent bug.\n");
+        printf("GVM: run_on_cpu: requested remote CPU, ignore here. This could be a latent bug.\n");
         return;
     }
     /* GVM add end */
@@ -1240,7 +1239,7 @@ static void *qemu_kvm_cpu_thread_fn(void *arg)
             qemu_wait_io_event(cpu); /* Merge: GVM was qemu_kvm_wait_io_event */
         } while (!cpu->unplug || cpu_can_run(cpu));
     } else {
-        printf("CPU %d is remote CPU, pause\n", cpu->cpu_index);
+        printf("GVM: Pausing remote CPU %d\n", cpu->cpu_index);
         qemu_mutex_unlock_iothread();
         /* use a new lock since qemu_global_mutex may cause deadlock */
         qemu_mutex_lock(&qemu_remote_mutex);

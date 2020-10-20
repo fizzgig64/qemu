@@ -24,9 +24,9 @@
 #include "interrupt-router.h"
 
 #define ROUTER_BUFFER_SIZE 1024
-// #define ROUTER_CONNECTION_UNIX_SOCKET
+/* #define ROUTER_CONNECTION_UNIX_SOCKET */
 #define ROUTER_CONNECTION_TCP
-//#define ROUTER_CONNECTION_RDMA
+/* #define ROUTER_CONNECTION_RDMA */
 
 /* Unix socket */
 #define ROUTER_SOCKET_PREFIX "/home/binss/work/qemu-io-router-socket"
@@ -38,7 +38,7 @@
 #define CPU_INDEX_ANY -1
 
 /* RDMA */
-//#define ROUTER_RDMA_DEBUG
+/* #define ROUTER_RDMA_DEBUG */
 static char **router_hosts = NULL;
 static uint32_t router_hosts_num = 0;
 
@@ -224,6 +224,27 @@ static void *io_router_loop(void *arg)
                 data = malloc(len);
                 qemu_get_buffer(req_file, data, len);
 
+                /**
+                 * This happens over-and-over on the BSP while waiting at the login prompt.
+                 * GVM: type=MMIO cpu_index=1 addr=4273733840 len=4 // MMIO is always AP->BSP
+                 * GVM: type=MMIO cpu_index=1 addr=4273733640 len=4
+                 * GVM: type=MMIO cpu_index=1 addr=4273733824 len=4
+                 * GVM: type=MMIO cpu_index=1 addr=4273733848 len=4
+                 * GVM: type=MMIO cpu_index=1 addr=4273733640 len=4
+                 * GVM: type=IOAPIC cpu_index=-1 isrv=59
+                 * 
+                 * Occasional GVM: type=FINT cpu_index=0 vector_num=253 trigger_mode=0
+                 * 
+                 * On the AP:
+                 * GVM: type=FINT cpu_index=1 vector_num=59 trigger_mode=1
+                 * GVM: type=FINT cpu_index=1 vector_num=253 trigger_mode=0
+                 * GVM: type=FINT cpu_index=1 vector_num=63 trigger_mode=0
+                 * [...] // severaml more 63
+                 * GVM: type=FINT cpu_index=1 vector_num=253 trigger_mode=0
+                 */
+
+                pr_debug("GVM: type=MMIO cpu_index=%d addr=%u len=%d\n", cpu_index, addr, len);
+
                 address_space_rw(&address_space_memory, addr, attrs, data, len, is_write);
 
                if (!is_write) {
@@ -238,52 +259,80 @@ static void *io_router_loop(void *arg)
                 /* Any CPU broadcast to others */
                 addr = qemu_get_be64(req_file);
                 val = qemu_get_be32(req_file);
+
+                pr_debug("GVM: type=LAPIC cpu_index=%d addr=%u val=%u\n", cpu_index, addr, val);
+#ifdef __x86_64__
                 apic_lapic_write(current_cpu, addr, val);
+#endif
                 break;
             case SPECIAL_INT:
                 /* Any CPU send to target CPUs of a multicast/broadcast of SMI/NMI/INIT */
                 mask = qemu_get_sbe32(req_file);
+
+                pr_debug("GVM: type=SINT cpu_index=%d mask=%d\n", cpu_index, mask);
                 cpu_interrupt(current_cpu, mask);
                 break;
             case SIPI:
                 /* Any CPU send to target CPUs of a multicast/broadcast of SIPI */
                 vector_num = qemu_get_sbe32(req_file);
+
+                pr_debug("GVM: type=SIPI cpu_index=%d vector_num=%d\n", cpu_index, vector_num);
+#ifdef __x86_64__
                 apic_startup(current_cpu, vector_num);
+#endif
                 break;
             case INIT_LEVEL_DEASSERT:
                 /* Any CPU send to target CPUs of a multicast/broadcast of INIT Level De-assert */
+
+                pr_debug("GVM: type=INIT_LEVEL_DEASSERT cpu_index=%d\n", cpu_index);
+#ifdef __x86_64__
                 apic_init_level_deassert(current_cpu);
+#endif
                 break;
             case FIXED_INT:
                 /* Any CPU send to target CPU(s) a lowest-priority/multicast/broadcast interrupt */
                 vector_num = qemu_get_sbe32(req_file);
                 trigger_mode = qemu_get_sbe32(req_file);
+
+                /* Most of the APIC interception happens in apic_mem_writel */
+                pr_debug("GVM: type=FINT cpu_index=%d vector_num=%d trigger_mode=%d\n", cpu_index, vector_num, trigger_mode);
+#ifdef __x86_64__
                 apic_set_irq_detour(current_cpu, vector_num, trigger_mode);
+#endif
                 break;
             case IOAPIC:
                 /* AP forward to BSP */
                 isrv = qemu_get_sbe32(req_file);
+
+                pr_debug("GVM: type=IOAPIC cpu_index=%d isrv=%d\n", cpu_index, isrv);
+#ifdef __x86_64__
                 ioapic_eoi_broadcast(isrv);
+#endif
                 break;
 
             case KVMCLOCK:
+#ifdef __x86_64__
                 kvmclock = kvmclock_getclock();
+#endif
                 qemu_put_be64(rsp_file, kvmclock);
                 qemu_fflush(rsp_file);
                 break;
 
             case SHUTDOWN:
+                pr_debug("GVM: type=SHUTDOWN cpu_index=%d\n", cpu_index);
                 qemu_system_shutdown_request(SHUTDOWN_CAUSE_GUEST_SHUTDOWN);
                 break;
             case RESET:
+                pr_debug("GVM: type=RESET cpu_index=%d\n", cpu_index);
                 qemu_system_reset_request(SHUTDOWN_CAUSE_GUEST_RESET);
                 break;
             case EXIT:
+                pr_debug("GVM: type=EXIT cpu_index=%d\n", cpu_index);
                 exit(0);
                 break;
 
             default:
-                printf("unknown type[%u]\n", type);
+                printf("GVM: unknown IOR type: %u\n", type);
                 exit(1);
         }
 
@@ -333,7 +382,7 @@ static int get_rdma_router_address(int target, int role, struct router_address *
             port = qemu_nums * target * 2 + qemu_index * 2 + 1;
             break;
         default:
-            printf("get_rdma_router_address failed. role %d is illegal\n", role);
+            printf("GVM: get_rdma_router_address failed. role %d is illegal\n", role);
             return -EINVAL;
     }
 
@@ -357,19 +406,19 @@ static void qemu_io_router_thread_run_rdma(void)
         }
         ret = get_rdma_router_address(i, RDMA_LISTEN, &addr);
         if (ret) {
-            printf("get_router_address failed, ret: %d\n", ret);
+            printf("GVM: get_router_address failed, ret: %d\n", ret);
             return;
         }
-        printf("QEMU %d wait for RDMA connection on %s:%s\n", i, addr.host, addr.port);
+        printf("GVM: QEMU %d wait for RDMA connection on %s:%s\n", i, addr.host, addr.port);
 
         listen_rsp_files[i] = qemu_rdma_build_incoming_file(&addr);
         ret = get_rdma_router_address(i, RDMA_CONNECT_REVERSE, &addr);
         if (ret) {
-            printf("get_router_address failed, ret: %d\n", ret);
+            printf("GVM: get_router_address failed, ret: %d\n", ret);
             return;
         }
         rsp_files[i] = qemu_rdma_build_incoming_file(&addr);
-        printf("QEMU %d wait for RDMA connection on %s:%s\n", i, addr.host, addr.port);
+        printf("GVM: QEMU %d wait for RDMA connection on %s:%s\n", i, addr.host, addr.port);
     }
 
     while (done < qemu_nums - 1) {
@@ -405,20 +454,20 @@ static void connect_io_router_rdma(void)
         }
         ret = get_rdma_router_address(i, RDMA_CONNECT, &addr);
         if (ret) {
-            printf("get_router_address failed, ret: %d\n", ret);
+            printf("GVM: get_router_address failed, ret: %d\n", ret);
             return;
         }
         req_files[i] = qemu_rdma_build_outcoming_file(&addr);
-        printf("QEMU %d connect to %d %s:%s success\n", local_index, i, addr.host, addr.port);
-        printf("req_files[%d] connect to %s:%s success\n", i, addr.host, addr.port);
+        printf("GVM: QEMU %d connect to %d %s:%s success\n", local_index, i, addr.host, addr.port);
+        printf("GVM: req_files[%d] connect to %s:%s success\n", i, addr.host, addr.port);
 
         ret = get_rdma_router_address(i, RDMA_LISTEN_REVERSE, &addr);
         if (ret) {
-            printf("get_router_address failed, ret: %d\n", ret);
+            printf("GVM: get_router_address failed, ret: %d\n", ret);
             return;
         }
         listen_req_files[i] = qemu_rdma_build_outcoming_file(&addr);
-        printf("QEMU %d connect to QEMU %d %s:%s success\n", local_index, i, addr.host, addr.port);
+        printf("GVM: QEMU %d connect to QEMU %d %s:%s success\n", local_index, i, addr.host, addr.port);
     }
 
     bool *done_list = (bool *)g_malloc0(qemu_nums * sizeof(bool));
@@ -428,7 +477,7 @@ static void connect_io_router_rdma(void)
             if (rsp_files[i] && !done_list[i]) {
                 done_list[i] = true;
                 done++;
-                printf("connect io router %d done\n", i);
+                printf("GVM: connect io router %d done\n", i);
             }
         }
     }
@@ -438,6 +487,7 @@ static void connect_io_router_rdma(void)
 #else /* ROUTER_CONNECTION_RDMA */
 
 #ifdef ROUTER_CONNECTION_TCP
+
 static int get_router_address(int target, struct router_address *addr)
 {
     if (addr == NULL) {
@@ -453,6 +503,7 @@ static int get_router_address(int target, struct router_address *addr)
     addr->target = target;
     return 0;
 }
+
 #endif
 
 static gboolean io_router_accept_connection(QIOChannel *ioc,
@@ -466,7 +517,7 @@ static gboolean io_router_accept_connection(QIOChannel *ioc,
     sioc = qio_channel_socket_accept(QIO_CHANNEL_SOCKET(ioc),
                                      &err);
     if (!sioc) {
-        error_report("could not accept io router connection (%s)",
+        error_report("GVM: could not accept io router connection (%s)",
                      error_get_pretty(err));
         exit(1);
     }
@@ -501,7 +552,7 @@ static void connect_io_router_single(int index)
     connect_addr->type = SOCKET_ADDRESS_KIND_UNIX;
     connect_addr->u.q_unix.data = g_new0(UnixSocketAddress, 1);
     connect_addr->u.q_unix.data->path = g_strdup(sockpath);
-    printf("connect socket_path: %s\n", sockpath);
+    printf("GVM: connect socket_path: %s\n", sockpath);
 #endif
 
 #ifdef ROUTER_CONNECTION_TCP
@@ -513,7 +564,7 @@ static void connect_io_router_single(int index)
 
     ret = get_router_address(index, &addr);
     if (ret) {
-        printf("get_router_address failed, ret: %d\n", ret);
+        printf("GVM: get_router_address failed: %d\n", ret);
         return;
     }
     connect_addr->type = SOCKET_ADDRESS_TYPE_INET;
@@ -527,13 +578,13 @@ static void connect_io_router_single(int index)
         .port = g_strdup(addr.port),
     };
     */
-    printf("connecting %s:%s\n", addr.host, addr.port);
+    printf("GVM: Connecting %s:%s\n", addr.host, addr.port);
 #endif
 
     channel = QIO_CHANNEL(qio_channel_socket_new());
     qio_channel_set_name(QIO_CHANNEL(channel), "io-send");
 
-    pr_debug("Connecting...\n");
+    pr_debug("GVM: Connecting...\n");
 
     while (true) {
         if (qio_channel_socket_connect_sync(QIO_CHANNEL_SOCKET(channel),
@@ -548,8 +599,9 @@ static void connect_io_router_single(int index)
 
     req_files[index] = qemu_fopen_channel_output(channel);
     rsp_files[index] = qemu_file_get_return_path(req_files[index]);
-    printf("connecting io router done\n");
+    printf("GVM: Connecting io router done\n");
 }
+
 #endif /* ROUTER_CONNECTION_RDMA */
 
 static void *qemu_io_router_thread_run(void *arg)
@@ -575,7 +627,7 @@ static void *qemu_io_router_thread_run(void *arg)
     listen_addr->u.q_unix.data = g_new0(UnixSocketAddress, 1);
     listen_addr->u.q_unix.data->path = g_strdup(sockpath);
 
-    printf("QEMU %d listen on Unix socket %s\n", index, sockpath);
+    printf("GVM: QEMU %d listen on Unix socket %s\n", index, sockpath);
 #endif
 
 #ifdef ROUTER_CONNECTION_TCP
@@ -586,7 +638,7 @@ static void *qemu_io_router_thread_run(void *arg)
 
     ret = get_router_address(index, &addr);
     if (ret) {
-        printf("get_router_address failed, ret: %d\n", ret);
+        printf("GVM: get_router_address failed: %d\n", ret);
         return NULL;
     }
     listen_addr->type = SOCKET_ADDRESS_TYPE_INET;
@@ -600,14 +652,14 @@ static void *qemu_io_router_thread_run(void *arg)
         .port = g_strdup(addr.port),
     };
     */
-    printf("QEMU %d listen on TCP socket %s:%s\n", index, addr.host, addr.port);
+    printf("GVM: QEMU %d listen on TCP socket %s:%s\n", index, addr.host, addr.port);
 #endif
 
     lioc = qio_channel_socket_new();
     qio_channel_set_name(QIO_CHANNEL(lioc), "io-router-listener-channel");
 
     if (qio_channel_socket_listen_sync(lioc, listen_addr, &local_err) < 0) {
-        printf("io-router listen error, exit...");
+        printf("GVM: io-router listen error, exit...");
         object_unref(OBJECT(lioc));
         qapi_free_SocketAddress(listen_addr);
         exit(1);
@@ -626,7 +678,7 @@ static void *qemu_io_router_thread_run(void *arg)
 
 static void connect_io_router(void)
 {
-    printf("connect_io_router...\n");
+    printf("GVM: connect_io_router...\n");
 
 #ifdef ROUTER_CONNECTION_RDMA
     connect_io_router_rdma();
@@ -640,7 +692,7 @@ static void connect_io_router(void)
         }
     }
 #endif
-    printf("connect_io_router done\n");
+    printf("GVM: connect_io_router done\n");
 
 }
 
@@ -684,7 +736,10 @@ void start_io_router(void)
         error_report("invalid number of cluster iplist");
         exit(1);
     }
-    printf("QEMU nums: %d, Total CPU nums: %d, CPU per QEMU: %d\n", qemu_nums, smp_cpus, local_cpus);
+
+    printf("GVM: QEMU instances: %d\n", qemu_nums);
+    printf("GVM: Total CPUs: %d\n", smp_cpus);
+    printf("GVM: CPUs per instances: %d\n", local_cpus);
 
     size = qemu_nums * sizeof(QEMUFile *);
     req_files = (QEMUFile **)g_malloc0(size);
@@ -706,7 +761,7 @@ void start_io_router(void)
  * APs to BSP. (except for PIOs to PCI configuration space)
  * TODO: support the conceptial "Virtual PCI-e Bus". @jinzhang
  */
-void pio_forwarding(uint16_t port, MemTxAttrs attrs, void *data, int direction,
+void gvm_pio_forwarding(uint16_t port, MemTxAttrs attrs, void *data, int direction,
                           int size, uint32_t count, bool broadcast)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
@@ -776,7 +831,7 @@ void pio_forwarding(uint16_t port, MemTxAttrs attrs, void *data, int direction,
  * Currently we put all devices on QEMU 0, so we only need to forward MMIOs on APs to BSP.
  * TODO: support the conceptial "Virtual PCI-e Bus". @jinzhang
  */
-void mmio_forwarding(hwaddr addr, MemTxAttrs attrs, uint8_t *data, int len, bool is_write)
+void gvm_mmio_forwarding(hwaddr addr, MemTxAttrs attrs, uint8_t *data, int len, bool is_write)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
 
@@ -811,7 +866,7 @@ void mmio_forwarding(hwaddr addr, MemTxAttrs attrs, uint8_t *data, int len, bool
 }
 
 /* @broadcast */
-void lapic_forwarding(int cpu_index, hwaddr addr, uint32_t val)
+void gvm_lapic_forwarding(int cpu_index, hwaddr addr, uint32_t val)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
     QEMUFile *io_connect_file;
@@ -836,7 +891,7 @@ void lapic_forwarding(int cpu_index, hwaddr addr, uint32_t val)
 }
 
 /* @unicast: current CPU -> dest CPU (CPU No. cpu_index) */
-void special_interrupt_forwarding(int cpu_index, int mask)
+void gvm_special_interrupt_forwarding(int cpu_index, int mask)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
     QEMUFile *io_connect_file = req_files[cpu_index / local_cpus];
@@ -851,7 +906,7 @@ void special_interrupt_forwarding(int cpu_index, int mask)
 }
 
 /* @unicast: current CPU -> dest CPU (CPU No. cpu_index) */
-void startup_forwarding(int cpu_index, int vector_num)
+void gvm_startup_forwarding(int cpu_index, int vector_num)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
     QEMUFile *io_connect_file = req_files[cpu_index / local_cpus];
@@ -866,7 +921,7 @@ void startup_forwarding(int cpu_index, int vector_num)
 }
 
 /* @unicast: current CPU -> dest CPU (CPU No. cpu_index) */
-void init_level_deassert_forwarding(int cpu_index)
+void gvm_init_level_deassert_forwarding(int cpu_index)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
     QEMUFile *io_connect_file = req_files[cpu_index / local_cpus];
@@ -880,7 +935,7 @@ void init_level_deassert_forwarding(int cpu_index)
 }
 
 /* @unicast: current CPU -> dest CPU (CPU No. cpu_index) */
-void irq_forwarding(int cpu_index, int vector_num, int trigger_mode)
+void gvm_irq_forwarding(int cpu_index, int vector_num, int trigger_mode)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
     QEMUFile *io_connect_file = req_files[cpu_index / local_cpus];
@@ -896,7 +951,7 @@ void irq_forwarding(int cpu_index, int vector_num, int trigger_mode)
 }
 
 /* @unicast: AP -> BSP (i.e. QEMU[0]) */
-void eoi_forwarding(int isrv)
+void gvm_eoi_forwarding(int isrv)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
     QEMUFile *io_connect_file = req_files[0];
@@ -910,7 +965,7 @@ void eoi_forwarding(int isrv)
 }
 
 /* @broadcast */
-void shutdown_forwarding(void)
+void gvm_shutdown_forwarding(void)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
     QEMUFile *io_connect_file;
@@ -929,7 +984,7 @@ void shutdown_forwarding(void)
 }
 
 /* @broadcast */
-void reset_forwarding(void)
+void gvm_reset_forwarding(void)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
     QEMUFile *io_connect_file;
@@ -948,7 +1003,7 @@ void reset_forwarding(void)
 }
 
 /* @broadcast */
-void exit_forwarding(void)
+void gvm_exit_forwarding(void)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
     QEMUFile *io_connect_file;
@@ -966,7 +1021,7 @@ void exit_forwarding(void)
     qemu_mutex_unlock(&io_forwarding_mutex);
 }
 
-void kvmclock_fetching(uint64_t *kvmclock)
+void gvm_kvmclock_fetching(uint64_t *kvmclock)
 {
     qemu_mutex_lock(&io_forwarding_mutex);
 

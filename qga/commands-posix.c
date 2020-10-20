@@ -45,6 +45,7 @@ extern char **environ;
 #include <ifaddrs.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <sys/sysmacros.h> /* GVM add */
 #include <net/if.h>
 #include <sys/statvfs.h>
 

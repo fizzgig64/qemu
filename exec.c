@@ -73,6 +73,11 @@
 
 //#define DEBUG_SUBPAGE
 
+/**
+ * Common if check for GVM usage.
+ */
+#define gvm_in_use() (kvm_enabled() && local_cpus != smp_cpus && !shm_path) /* GVM add */
+
 #if !defined(CONFIG_USER_ONLY)
 /* ram_list is read under rcu_read_lock()/rcu_read_unlock().  Writes
  * are protected by the ramlist lock.
@@ -3258,7 +3263,7 @@ static MemTxResult flatview_write_continue(FlatView *fv, hwaddr addr,
             /* RAM case */
             ptr = qemu_ram_ptr_length(mr->ram_block, addr1, &l, false);
             /* GVM add begin: place memcpy into else */
-            if (kvm_enabled() && local_cpus != smp_cpus && !shm_path) {
+            if (gvm_in_use()) {
                 struct kvm_dsm_memcpy cpy = {
                     .write = true,
                     .host_virt_addr = (__u64)ptr,
@@ -3267,7 +3272,7 @@ static MemTxResult flatview_write_continue(FlatView *fv, hwaddr addr,
                 };
                 ret = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMCPY, &cpy);
                 if (ret < 0) {
-                    fprintf(stderr, "KVM_DSM_MEMCPY failed %d\n", ret);
+                    fprintf(stderr, "GVM: KVM_DSM_MEMCPY failed %d\n", ret);
                 }
             }
             else {
@@ -3337,7 +3342,7 @@ MemTxResult flatview_read_continue(FlatView *fv, hwaddr addr,
             /* RAM case */
             ptr = qemu_ram_ptr_length(mr->ram_block, addr1, &l, false);
             /* GVM add begin: place memcpy into else */
-            if (kvm_enabled() && local_cpus != smp_cpus && !shm_path) {
+            if (gvm_in_use()) {
                 struct kvm_dsm_memcpy cpy = {
                     .write = false,
                     .host_virt_addr = (__u64)ptr,
@@ -3346,7 +3351,7 @@ MemTxResult flatview_read_continue(FlatView *fv, hwaddr addr,
                 };
                 ret = kvm_vm_ioctl(kvm_state, KVM_DSM_MEMCPY, &cpy);
                 if (ret < 0) {
-                    fprintf(stderr, "KVM_DSM_MEMCPY failed %d\n", ret);
+                    fprintf(stderr, "GVM: KVM_DSM_MEMCPY failed %d\n", ret);
                 }
             }
             else {
@@ -3675,8 +3680,8 @@ void *address_space_map(AddressSpace *as,
     FlatView *fv;
 
     /* GVM add begin */
-    if (is_dsm)
-        *is_dsm = false;
+    if (is_dsm != NULL)
+        *is_dsm = IS_NOT_DSM;
     /* GVM add end */
 
     if (len == 0) {
@@ -3718,9 +3723,9 @@ void *address_space_map(AddressSpace *as,
     ptr = qemu_ram_ptr_length(mr->ram_block, xlat, plen, true);
 
     /* GVM add begin */
-    if (is_dsm && kvm_enabled() && local_cpus != smp_cpus && !shm_path)
+    if (is_dsm != NULL && gvm_in_use())
         *is_dsm = true;
-    if (kvm_enabled() && dsm_pin && local_cpus != smp_cpus && !shm_path) {
+    if (dsm_pin == DSM_PIN && gvm_in_use()) {
         int ret;
         struct kvm_dsm_mempin pin = {
             .write = is_write,
@@ -3762,7 +3767,7 @@ void address_space_unmap(AddressSpace *as, void *buffer, hwaddr len,
         }
 
         /* GVM add begin */
-        if (kvm_enabled() && dsm_unpin && local_cpus != smp_cpus && !shm_path) {
+        if (dsm_unpin == DSM_UNPIN && gvm_in_use()) {
             int ret;
             struct kvm_dsm_mempin pin = {
                 .write = is_write,

@@ -41,16 +41,21 @@
 #include "sysemu/sev.h"
 
 #include "hw/boards.h"
+
+#ifdef __x86_64__
 #include "hw/i386/apic_internal.h" /* GVM add */
 #include "target/i386/cpu.h" /* GVM add */
 #include "interrupt-router.h" /* GVM add */
+#endif
 
 /* This check must be after config-host.h is included */
 #ifdef CONFIG_EVENTFD
 #include <sys/eventfd.h>
 #endif
 
+#ifdef __x86_64__
 #include "interrupt-router.h" /* GVM add */
+#endif
 
 /* KVM uses PAGE_SIZE in its definition of KVM_COALESCED_MMIO_MAX. We
  * need to use the real host PAGE_SIZE, as that's what KVM will use.
@@ -1453,6 +1458,8 @@ static void kvm_irqchip_create(MachineState *machine, KVMState *s)
 
     kvm_init_irq_routing(s);
 
+    printf("GVM: Created kvm_kernel_irqchip\n"); /* GVM add */
+
     s->gsimap = g_hash_table_new(g_direct_hash, g_direct_equal);
 }
 
@@ -1531,18 +1538,18 @@ static int kvm_init(MachineState *ms)
 
     ret = kvm_ioctl(s, KVM_GET_API_VERSION, 0);
     
-    fprintf(stdout, "KVM API version[%d], QEMU version[%d]\n", ret, KVM_API_VERSION); /* GVM add */
+    fprintf(stdout, "GVM: KVM API version: %d QEMU API version: %d\n", ret, KVM_API_VERSION); /* GVM add */
     if (ret < KVM_API_VERSION) {
         if (ret >= 0) {
             ret = -EINVAL;
         }
-        fprintf(stderr, "kvm version too old\n");
+        fprintf(stderr, "GVM: KVM version too old\n");
         goto err;
     }
 
     if (ret > KVM_API_VERSION) {
         ret = -EINVAL;
-        fprintf(stderr, "kvm version not supported\n");
+        fprintf(stderr, "GVM: KVM version not supported\n");
         goto err;
     }
 
@@ -1733,12 +1740,13 @@ static void kvm_handle_io(uint16_t port, MemTxAttrs attrs, void *data, int direc
     uint8_t *ptr = data;
 
     /* GVM add begin */
+#ifdef __x86_64__
     if (local_cpus != smp_cpus)
     {
         // AP PIO redirect
         if (local_cpu_start_index != 0)
         {
-            pio_forwarding(port, attrs, data, direction, size, count, false);
+            gvm_pio_forwarding(port, attrs, data, direction, size, count, false);
             return;
         }
 
@@ -1767,10 +1775,11 @@ static void kvm_handle_io(uint16_t port, MemTxAttrs attrs, void *data, int direc
          *  means the data flows out from guest (and thus KVM).
          */
         if ((port == 0xCF8 || port == 0xCFC || port == 0xCFE || port == 126) && direction == KVM_EXIT_IO_OUT) {
-            pio_forwarding(port, attrs, data, direction, size, count, true);
+            gvm_pio_forwarding(port, attrs, data, direction, size, count, true);
         }
         return;
     }
+#endif
     /* GVM add end */
 
     for (i = 0; i < count; i++) {
@@ -1939,7 +1948,10 @@ int kvm_cpu_exec(CPUState *cpu)
 {
     struct kvm_run *run = cpu->kvm_run;
     int ret, run_ret;
+
+#ifdef __x86_64__
     struct APICCommonState *apic = APIC_COMMON(X86_CPU(cpu)->apic_state); /* GVM add */
+#endif
 
     DPRINTF("kvm_cpu_exec()\n");
 
@@ -2025,6 +2037,7 @@ int kvm_cpu_exec(CPUState *cpu)
         case KVM_EXIT_MMIO:
             DPRINTF("handle_mmio\n");
             /* GVM add begin: used to call address_space_rw */
+#ifdef __x86_64__
             if (local_cpus != smp_cpus && local_cpu_start_index != 0) {
                 /* MMIOs of APIC should be resolved in apic_io_ops
                  * Case 1: GPA is in [0xfee00000, 0xfeefffff], this is the
@@ -2044,13 +2057,12 @@ int kvm_cpu_exec(CPUState *cpu)
                                      run->mmio.len,
                                      run->mmio.is_write);
                 } else {
-                    mmio_forwarding(run->mmio.phys_addr, attrs,
-                                 run->mmio.data,
-                                 run->mmio.len,
-                                 run->mmio.is_write);
+                    gvm_mmio_forwarding(run->mmio.phys_addr, attrs,
+                                        run->mmio.data,
+                                        run->mmio.len,
+                                        run->mmio.is_write);
                 }
-            }
-            else {
+            } else {
                 /* Called outside BQL */
                 address_space_rw(&address_space_memory,
                                  run->mmio.phys_addr, attrs,
@@ -2058,6 +2070,13 @@ int kvm_cpu_exec(CPUState *cpu)
                                  run->mmio.len,
                                  run->mmio.is_write);
             }
+#else
+            address_space_rw(&address_space_memory,
+                                run->mmio.phys_addr, attrs,
+                                run->mmio.data,
+                                run->mmio.len,
+                                run->mmio.is_write);
+#endif
             /* GVM add end */
             ret = 0;
             break;

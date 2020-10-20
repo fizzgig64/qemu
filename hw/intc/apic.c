@@ -39,6 +39,12 @@
 #define SYNC_TO_VAPIC                   0x2
 #define SYNC_ISR_IRR_TO_VAPIC           0x4
 
+#define gvm_is_remote_cpu(index) \
+    (local_cpus != smp_cpus && \
+        (index < local_cpu_start_index || \
+         index >= local_cpu_start_index + local_cpus) \
+    )
+
 static APICCommonState *local_apics[MAX_APICS + 1];
 
 #define TYPE_APIC "apic"
@@ -216,9 +222,8 @@ static void apic_external_nmi(APICCommonState *s)
 static void cpu_interrupt_remote(CPUState *cpu, int mask)
 {
     int index = cpu->cpu_index;
-    if (local_cpus != smp_cpus && (index < local_cpu_start_index ||
-                index >= local_cpu_start_index + local_cpus)) {
-        special_interrupt_forwarding(index, mask);
+    if (gvm_is_remote_cpu(index)) {
+        gvm_special_interrupt_forwarding(index, mask);
     } else {
         cpu_interrupt(cpu, mask);
     }
@@ -233,9 +238,8 @@ void apic_set_irq_detour(CPUState *cpu, int vector_num, int trigger_mode) {
 static void apic_set_irq_remote(APICCommonState *s, int vector_num, int trigger_mode)
 {
     int index = (CPU(s->cpu))->cpu_index;
-    if (local_cpus != smp_cpus && (index < local_cpu_start_index ||
-                index >= local_cpu_start_index + local_cpus)) {
-        irq_forwarding(index, vector_num, trigger_mode);
+    if (gvm_is_remote_cpu(index)) {
+        gvm_irq_forwarding(index, vector_num, trigger_mode);
     } else {
         apic_set_irq(s, vector_num, trigger_mode);
     }
@@ -458,7 +462,7 @@ static void apic_eoi(APICCommonState *s)
     if (!(s->spurious_vec & APIC_SV_DIRECTED_IO) && apic_get_bit(s->tmr, isrv)) {
         /* GVM add begin: had called ioapic_eoi_broadcast only */
         if (local_cpus != smp_cpus && local_cpu_start_index != 0) {
-            eoi_forwarding(isrv);
+            gvm_eoi_forwarding(isrv);
         } else {
             ioapic_eoi_broadcast(isrv);
         }
@@ -551,9 +555,8 @@ void apic_startup(CPUState *cpu, int vector_num) /* GVM add: remove static */
 static void apic_startup_remote(CPUState *cpu, int vector_num)
 {
     int index = cpu->cpu_index;
-    if (local_cpus != smp_cpus && (index < local_cpu_start_index ||
-                index >= local_cpu_start_index + local_cpus)) {
-        startup_forwarding(index, vector_num);
+    if (gvm_is_remote_cpu(index)) {
+        gvm_startup_forwarding(index, vector_num);
     } else {
         apic_startup(cpu, vector_num);
     }
@@ -576,9 +579,8 @@ void apic_sipi(DeviceState *dev)
 static void apic_init_level_deassert_remote(APICCommonState *s)
 {
     int index = (CPU(s->cpu))->cpu_index;
-    if (local_cpus != smp_cpus && (index < local_cpu_start_index ||
-                index >= local_cpu_start_index + local_cpus)) {
-        init_level_deassert_forwarding(index);
+    if (gvm_is_remote_cpu(index)) {
+        gvm_init_level_deassert_forwarding(index);
     } else {
         s->arb_id = s->id;
     }
@@ -851,12 +853,12 @@ static void apic_send_msi(MSIMessage *msi)
     /* XXX: Ignore redirection hint. */
     /* GVM add begin: used to call apic_deliver_irq */
     if (vector < 16) {
-        printf("error: msi send vector in range 0-15\n");
+        printf("GVM: error: MSI send vector in range 0-15\n");
         if (dev) {
             APIC(dev)->esr |= APIC_ESR_RECV_ACCEPT;
             apic_local_deliver(APIC(dev), APIC_LVT_ERROR);
         } else {
-            printf("error: cannot find current apic\n");
+            printf("GVM: error: cannot find current APIC\n");
         }
     } else {
         apic_deliver_irq(dest, dest_mode, delivery, vector, trigger_mode);
@@ -905,7 +907,7 @@ void apic_mem_writel(void *opaque, hwaddr addr, uint32_t val) /* GVM add: remove
     /* keep sync of some LAPIC states */
     if (local_cpus != smp_cpus) {
         if (current_cpu == NULL) {
-            printf("fatal: unknown lapic modification\n");
+            printf("GVM: fatal: unknown LAPIC modification\n");
             abort();
         }
 
@@ -915,7 +917,7 @@ void apic_mem_writel(void *opaque, hwaddr addr, uint32_t val) /* GVM add: remove
             case 0x02: /* APIC ID */
             case 0x0d: /* LDR */
             case 0x0e: /* DFR */
-                lapic_forwarding(current_cpu->cpu_index, addr, val);
+                gvm_lapic_forwarding(current_cpu->cpu_index, addr, val);
                 break;
             default:
                 break;

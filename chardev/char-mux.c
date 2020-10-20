@@ -154,7 +154,7 @@ static int mux_proc_byte(Chardev *chr, MuxChardev *d, int ch)
                  qemu_chr_write_all(chr, (uint8_t *)term, strlen(term));
                  /* GVM add begin */
                  if (local_cpus != smp_cpus) {
-                     exit_forwarding();
+                     gvm_exit_forwarding();
                      disconnect_io_router();
                  }
                  /* GVM add end */

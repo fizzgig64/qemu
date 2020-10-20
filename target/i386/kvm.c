@@ -1221,6 +1221,14 @@ void kvm_arch_reset_vcpu(X86CPU *cpu)
         env->mp_state = KVM_MP_STATE_RUNNABLE;
     }
 
+    /* GVM add debug */
+    if (kvm_irqchip_in_kernel()) {
+        printf("GVM: kvm_irqchip_in_kernel=true\n");
+    } else {
+        printf("GVM: kvm_irqchip_in_kernel=false\n");
+    }
+    /* GVM add end */
+
     if (cpu->hyperv_synic) {
         int i;
         for (i = 0; i < ARRAY_SIZE(env->msr_hv_synic_sint); i++) {

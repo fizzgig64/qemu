@@ -27,20 +27,19 @@ struct io_router_loop_arg {
 };
 
 void start_io_router(void);
-
-void mmio_forwarding(hwaddr addr, MemTxAttrs attrs, uint8_t *buf, int len, bool is_write);
-void pio_forwarding(uint16_t port, MemTxAttrs attrs, void *data, int direction, int size, uint32_t count, bool broadcast);
-void lapic_forwarding(int cpu_index, hwaddr addr, uint32_t val);
-void special_interrupt_forwarding(int cpu_index, int mask);
-void startup_forwarding(int cpu_index, int vector_num);
-void init_level_deassert_forwarding(int cpu_index);
-void irq_forwarding(int cpu_index, int vector_num, int trigger_mode);
-void eoi_forwarding(int isrv);
-void shutdown_forwarding(void);
-void reset_forwarding(void);
-void exit_forwarding(void);
-void kvmclock_fetching(uint64_t *kvmclock);
-
 void disconnect_io_router(void);
+
+void gvm_mmio_forwarding(hwaddr addr, MemTxAttrs attrs, uint8_t *buf, int len, bool is_write);
+void gvm_pio_forwarding(uint16_t port, MemTxAttrs attrs, void *data, int direction, int size, uint32_t count, bool broadcast);
+void gvm_lapic_forwarding(int cpu_index, hwaddr addr, uint32_t val);
+void gvm_special_interrupt_forwarding(int cpu_index, int mask);
+void gvm_startup_forwarding(int cpu_index, int vector_num);
+void gvm_init_level_deassert_forwarding(int cpu_index);
+void gvm_irq_forwarding(int cpu_index, int vector_num, int trigger_mode);
+void gvm_eoi_forwarding(int isrv);
+void gvm_shutdown_forwarding(void);
+void gvm_reset_forwarding(void);
+void gvm_exit_forwarding(void);
+void gvm_kvmclock_fetching(uint64_t *kvmclock);
 
 #endif /* INTERRUPT_ROUTER_H */
