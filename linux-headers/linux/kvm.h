@@ -950,7 +950,7 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_GET_MSR_FEATURES 153
 #define KVM_CAP_HYPERV_EVENTFD 154
 #define KVM_CAP_HYPERV_TLBFLUSH 155
-#define KVM_CAP_X86_DSM 156 /* GVM add (changed to 163) */
+#define KVM_CAP_X86_DSM 242 /* GVM add (changed to 163) */
 
 #ifdef KVM_CAP_IRQ_ROUTING
 
