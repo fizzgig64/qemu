@@ -48,6 +48,8 @@ static QEMUFile **listen_req_files = NULL;
 static QEMUFile **listen_rsp_files = NULL;
 
 QemuMutex ipi_mutex;
+QemuMutex ipi_read_mutex;
+QemuMutex ipi_write_mutex;
 QemuMutex io_forwarding_mutex;
 
 int parse_cluster_iplist(const char *cluster_iplist)
@@ -93,7 +95,7 @@ char **get_cluster_iplist(uint32_t *len)
     return router_hosts;
 }
 
-int pr_debug_log = 1;
+int pr_debug_log = 0;
 
 int pr_debug(const char *format, ...)
 {
@@ -109,10 +111,21 @@ int pr_debug(const char *format, ...)
     return done;
 }
 
-
 enum forward_type {
     PIO = 1,
     MMIO,
+    MMIO_BCAST,
+    GIC_DIST_WRITE,
+    GIC_DIST_WRITEL,
+    GIC_DIST_READ,
+    GIC_CPU_WRITE,
+    GIC_CPU_READ,
+    GIC_SET_IRQ,
+    KVM_REG_IOCTL,
+    ARM_IPI_UNLOCK,
+    ARM_MPSTATE_TO_KVM,
+    ARM_HVC_PSCI_ON,
+    ARM_CPU_KVM_SET_IRQ,
     LAPIC,
     SPECIAL_INT,
     SIPI,
@@ -148,17 +161,18 @@ static void kvm_handle_remote_io(uint16_t port, MemTxAttrs attrs, void *data, in
     }
 }
 
+#define MAKE_SYNC 1
+
+#define do_optional_sync() \
+    if (MAKE_SYNC) { qemu_put_be16(rsp_file, 1); qemu_fflush(rsp_file); }
+
+#define wait_optional_sync() \
+    if (MAKE_SYNC) { short opt_ret = qemu_get_be16(io_connect_return_file); (void)opt_ret; }
+
 static void *io_router_loop(void *arg)
 {
     uint8_t type;
     int cpu_index;
-
-    /* PIO */
-    uint16_t port;
-    MemTxAttrs attrs;
-    int direction;
-    int size;
-    uint32_t count;
 
     /* MMIO */
     hwaddr addr;
@@ -191,19 +205,21 @@ static void *io_router_loop(void *arg)
         }
         switch(type)
         {
-            case PIO:
+            case PIO: {
                 /* AP forward to BSP */
+                MemTxAttrs attrs;
 
                 /*
                  * indicate which cpu we are currently operating on, especially
                  * for apic_mem_readl / apic_mem_writel => cpu_get_current_apic
                  */
-                port = qemu_get_be16(req_file);
+                uint16_t port = qemu_get_be16(req_file);
+
                 qemu_get_buffer(req_file, (uint8_t *)&attrs, sizeof(attrs));
-                direction = qemu_get_sbe32(req_file);
-                size = qemu_get_sbe32(req_file);
-                count = qemu_get_be32(req_file);
-                data = malloc(count * size);
+                int direction = qemu_get_sbe32(req_file);
+                int size = qemu_get_sbe32(req_file);
+                uint32_t count = qemu_get_be32(req_file);
+                void* data = malloc(count * size);
                 qemu_get_buffer(req_file, data, count * size);
 
                 kvm_handle_remote_io(port, attrs, data, direction, size, count);
@@ -214,9 +230,43 @@ static void *io_router_loop(void *arg)
                 }
                 free(data);
                 break;
+            }
+            case KVM_REG_IOCTL: {
+                /* unicast */
+                struct kvm_one_reg reg;
 
-            case MMIO:
+                int type = qemu_get_sbe32(req_file);
+                reg.id = qemu_get_be64(req_file);
+                uint64_t reg_value = qemu_get_be64(req_file);
+                reg.addr = (uintptr_t) &reg_value;
+
+                int ret = kvm_reg_ioctl_local(cpu_index, type, &reg);
+
+                qemu_put_be64(rsp_file, reg_value);
+                qemu_put_sbe32(rsp_file, ret);
+                qemu_fflush(rsp_file);
+                break;
+            }
+            case ARM_MPSTATE_TO_KVM: {
+                int power_state = qemu_get_sbe32(req_file);
+                kvm_arm_sync_mpstate_to_kvm_remote(cpu_index, power_state);
+                break;
+            }
+            case ARM_HVC_PSCI_ON: {
+                uint64_t pc = qemu_get_be64(req_file);
+                uint64_t r0 = qemu_get_be64(req_file);
+
+                int ret = kvm_hvc_psci_on_local(cpu_index, pc, r0);
+
+                qemu_put_sbe32(rsp_file, ret);
+                qemu_fflush(rsp_file);
+                break;
+            }
+            case MMIO_BCAST:
+            case MMIO: {
                 /* AP forward to BSP */
+                MemTxAttrs attrs;
+
                 addr = qemu_get_be64(req_file);
                 qemu_get_buffer(req_file, (uint8_t *)&attrs, sizeof(attrs));
                 len = qemu_get_sbe32(req_file);
@@ -247,21 +297,23 @@ static void *io_router_loop(void *arg)
 
                 address_space_rw(&address_space_memory, addr, attrs, data, len, is_write);
 
-               if (!is_write) {
+                if (type == MMIO_BCAST) {
+                    do_optional_sync();
+                } else if (!is_write) {
                     qemu_put_buffer(rsp_file, data, len);
                     qemu_fflush(rsp_file);
                 }
 
                 free(data);
                 break;
-
+            }
             case LAPIC:
                 /* Any CPU broadcast to others */
                 addr = qemu_get_be64(req_file);
                 val = qemu_get_be32(req_file);
 
                 pr_debug("GVM: type=LAPIC cpu_index=%d addr=%u val=%u\n", cpu_index, addr, val);
-#ifdef __x86_64__
+#ifdef TARGET_X86_64
                 apic_lapic_write(current_cpu, addr, val);
 #endif
                 break;
@@ -277,7 +329,7 @@ static void *io_router_loop(void *arg)
                 vector_num = qemu_get_sbe32(req_file);
 
                 pr_debug("GVM: type=SIPI cpu_index=%d vector_num=%d\n", cpu_index, vector_num);
-#ifdef __x86_64__
+#ifdef TARGET_X86_64
                 apic_startup(current_cpu, vector_num);
 #endif
                 break;
@@ -285,7 +337,7 @@ static void *io_router_loop(void *arg)
                 /* Any CPU send to target CPUs of a multicast/broadcast of INIT Level De-assert */
 
                 pr_debug("GVM: type=INIT_LEVEL_DEASSERT cpu_index=%d\n", cpu_index);
-#ifdef __x86_64__
+#ifdef TARGET_X86_64
                 apic_init_level_deassert(current_cpu);
 #endif
                 break;
@@ -296,7 +348,7 @@ static void *io_router_loop(void *arg)
 
                 /* Most of the APIC interception happens in apic_mem_writel */
                 pr_debug("GVM: type=FINT cpu_index=%d vector_num=%d trigger_mode=%d\n", cpu_index, vector_num, trigger_mode);
-#ifdef __x86_64__
+#ifdef TARGET_X86_64
                 apic_set_irq_detour(current_cpu, vector_num, trigger_mode);
 #endif
                 break;
@@ -305,13 +357,13 @@ static void *io_router_loop(void *arg)
                 isrv = qemu_get_sbe32(req_file);
 
                 pr_debug("GVM: type=IOAPIC cpu_index=%d isrv=%d\n", cpu_index, isrv);
-#ifdef __x86_64__
+#ifdef TARGET_X86_64
                 ioapic_eoi_broadcast(isrv);
 #endif
                 break;
 
             case KVMCLOCK:
-#ifdef __x86_64__
+#ifdef TARGET_X86_64
                 kvmclock = kvmclock_getclock();
 #endif
                 qemu_put_be64(rsp_file, kvmclock);
@@ -513,6 +565,9 @@ static gboolean io_router_accept_connection(QIOChannel *ioc,
     QIOChannelSocket *sioc;
     QIOChannel *channel;
     Error *err = NULL;
+
+    fprintf(stderr, "GVM: io_router_accept_connection\n");
+
 
     sioc = qio_channel_socket_accept(QIO_CHANNEL_SOCKET(ioc),
                                      &err);
@@ -749,6 +804,8 @@ void start_io_router(void)
 
     qemu_mutex_init(&io_forwarding_mutex);
     qemu_mutex_init(&ipi_mutex);
+    qemu_mutex_init(&ipi_read_mutex);
+    qemu_mutex_init(&ipi_write_mutex);
 
     qemu_thread_create(&(router.thread), "io-router-listener", qemu_io_router_thread_run,
                    &router, QEMU_THREAD_JOINABLE);
@@ -857,12 +914,122 @@ void gvm_mmio_forwarding(hwaddr addr, MemTxAttrs attrs, uint8_t *data, int len, 
 
     qemu_fflush(io_connect_file);
 
-
     if (!is_write) {
         qemu_get_buffer(io_connect_return_file, data, len);
     }
 
     qemu_mutex_unlock(&io_forwarding_mutex);
+}
+
+void gvm_bcast_mmio_forwarding(hwaddr addr, MemTxAttrs attrs, uint8_t *data, int len, bool is_write)
+{
+    qemu_mutex_lock(&io_forwarding_mutex);
+
+    QEMUFile *io_connect_file;
+    QEMUFile *io_connect_return_file;
+
+    int i;
+    for (i = 0; i < qemu_nums; i++) {
+        io_connect_file = req_files[i];
+        io_connect_return_file = rsp_files[i];
+
+        if (io_connect_file) {
+            qemu_put_be16(io_connect_file, MMIO_BCAST);
+            /*
+            * indicate which cpu we are currently operating on, especially for
+            * apic_mem_readl / apic_mem_writel => cpu_get_current_apic
+            */
+            qemu_put_sbe32(io_connect_file, current_cpu->cpu_index);
+            qemu_put_be64(io_connect_file, addr);
+            qemu_put_buffer(io_connect_file, (uint8_t *)&attrs, sizeof(attrs));
+            qemu_put_sbe32(io_connect_file, len);
+            if (is_write) {
+                qemu_put_sbe32(io_connect_file, 1);
+            }
+            else {
+                qemu_put_sbe32(io_connect_file, 0);
+            }
+            qemu_put_buffer(io_connect_file, data, len);
+
+            qemu_fflush(io_connect_file);
+
+            // We are not handling the writes.
+        }
+
+        if (io_connect_return_file) {
+            wait_optional_sync();
+        }
+    }
+
+    qemu_mutex_unlock(&io_forwarding_mutex);
+}
+
+int gvm_kvm_hvc_psci_on_forwarding(int cpu_target, uint64_t pc, uint64_t r0) {
+    qemu_mutex_lock(&io_forwarding_mutex);
+
+    QEMUFile *io_connect_file = req_files[cpu_target / local_cpus];
+    QEMUFile *io_connect_return_file = rsp_files[cpu_target / local_cpus];
+
+    qemu_put_be16(io_connect_file, ARM_HVC_PSCI_ON);
+    qemu_put_sbe32(io_connect_file, cpu_target);
+    qemu_put_be64(io_connect_file, pc);
+    qemu_put_be64(io_connect_file, r0);
+    qemu_fflush(io_connect_file);
+
+    int ret = qemu_get_sbe32(io_connect_return_file);
+
+    qemu_mutex_unlock(&io_forwarding_mutex);
+
+    return ret;
+}
+
+void gvm_arm_sync_mpstate_to_kvm_forwarding(int cpu_index, int power_state) {
+    qemu_mutex_lock(&io_forwarding_mutex);
+
+    QEMUFile *io_connect_file;
+
+    int i;
+    for (i = 0; i < qemu_nums; i++) {
+        io_connect_file = req_files[i];
+        if (io_connect_file) {
+            qemu_put_be16(io_connect_file, ARM_MPSTATE_TO_KVM);
+            qemu_put_sbe32(io_connect_file, cpu_index);
+            qemu_put_sbe32(io_connect_file, power_state);
+            qemu_fflush(io_connect_file);
+        }
+    }
+
+    qemu_mutex_unlock(&io_forwarding_mutex);
+}
+
+/* unicast mode */
+int gvm_kvm_reg_ioctl_forwarding(int cpu_target, int cpu_index, int type, struct kvm_one_reg *reg) {
+    qemu_mutex_lock(&io_forwarding_mutex);
+
+    uint64_t addr_value;
+    uint64_t *addr_ptr;
+    int ret;
+
+    QEMUFile *io_connect_file = req_files[cpu_target / local_cpus];
+    QEMUFile *io_connect_return_file = rsp_files[cpu_target / local_cpus];
+
+    qemu_put_be16(io_connect_file, KVM_REG_IOCTL);
+    qemu_put_sbe32(io_connect_file, cpu_index);
+    qemu_put_sbe32(io_connect_file, type);
+    qemu_put_be64(io_connect_file, reg->id);
+
+    addr_ptr = (uint64_t *)(reg->addr);
+    addr_value = *addr_ptr;
+    qemu_put_be64(io_connect_file, addr_value);
+    qemu_fflush(io_connect_file);
+
+    addr_value = qemu_get_be64(io_connect_return_file);
+    ret = qemu_get_sbe32(io_connect_return_file);
+
+    qemu_mutex_unlock(&io_forwarding_mutex);
+
+    *addr_ptr = addr_value;
+    return ret;
 }
 
 /* @broadcast */

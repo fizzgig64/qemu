@@ -100,6 +100,8 @@ void cpu_reset_interrupt(CPUState *cpu, int mask)
 {
     bool need_lock = !qemu_mutex_iothread_locked();
 
+    fprintf(stderr, "%s: cpu=%d mask=%d\n", __func__, cpu->cpu_index, mask);
+
     if (need_lock) {
         qemu_mutex_lock_iothread();
     }
@@ -397,6 +399,8 @@ static vaddr cpu_adjust_watchpoint_address(CPUState *cpu, vaddr addr, int len)
 static void generic_handle_interrupt(CPUState *cpu, int mask)
 {
     cpu->interrupt_request |= mask;
+
+    fprintf(stderr, "%s: will kick cpu=%d mask=%d\n", __func__, cpu->cpu_index, mask);
 
     if (!qemu_cpu_is_self(cpu)) {
         qemu_cpu_kick(cpu);

@@ -1,3 +1,6 @@
+slirp
+tests/fp
+
 /config-devices.*
 /config-all-devices.*
 /config-all-disas.*
@@ -212,3 +215,7 @@ trace-dtrace-root.dtrace
 trace-ust-all.h
 trace-ust-all.c
 /target/arm/decode-sve.inc.c
+
+# GVM add
+build
+.vscode

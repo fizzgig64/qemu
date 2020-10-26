@@ -37,6 +37,8 @@
 #include "disas/capstone.h"
 #include "fpu/softfloat.h"
 
+#include "interrupt-router.h"
+
 static void arm_cpu_set_pc(CPUState *cs, vaddr value)
 {
     ARMCPU *cpu = ARM_CPU(cs);
@@ -428,6 +430,7 @@ static void arm_cpu_set_irq(void *opaque, int irq, int level)
     ARMCPU *cpu = opaque;
     CPUARMState *env = &cpu->env;
     CPUState *cs = CPU(cpu);
+
     static const int mask[] = {
         [ARM_CPU_IRQ] = CPU_INTERRUPT_HARD,
         [ARM_CPU_FIQ] = CPU_INTERRUPT_FIQ,
@@ -458,6 +461,12 @@ static void arm_cpu_kvm_set_irq(void *opaque, int irq, int level)
 #ifdef CONFIG_KVM
     ARMCPU *cpu = opaque;
     CPUState *cs = CPU(cpu);
+
+    if (gvm_is_active() && gvm_is_remote_cpu(cs->cpu_index)) {
+        // Do not send IRQs to kernel for remote CPUs.
+        return;
+    }
+
     int kvm_irq = KVM_ARM_IRQ_TYPE_CPU << KVM_ARM_IRQ_TYPE_SHIFT;
 
     switch (irq) {
@@ -471,6 +480,7 @@ static void arm_cpu_kvm_set_irq(void *opaque, int irq, int level)
         g_assert_not_reached();
     }
     kvm_irq |= cs->cpu_index << KVM_ARM_IRQ_VCPU_SHIFT;
+
     kvm_set_irq(kvm_state, kvm_irq, level ? 1 : 0);
 #endif
 }

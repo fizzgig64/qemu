@@ -42,19 +42,16 @@
 
 #include "hw/boards.h"
 
-#ifdef __x86_64__
+#ifdef TARGET_X86_64
 #include "hw/i386/apic_internal.h" /* GVM add */
 #include "target/i386/cpu.h" /* GVM add */
-#include "interrupt-router.h" /* GVM add */
 #endif
+
+#include "interrupt-router.h" /* GVM add */
 
 /* This check must be after config-host.h is included */
 #ifdef CONFIG_EVENTFD
 #include <sys/eventfd.h>
-#endif
-
-#ifdef __x86_64__
-#include "interrupt-router.h" /* GVM add */
 #endif
 
 /* KVM uses PAGE_SIZE in its definition of KVM_COALESCED_MMIO_MAX. We
@@ -920,6 +917,8 @@ int kvm_set_irq(KVMState *s, int irq, int level)
     struct kvm_irq_level event;
     int ret;
 
+    //fprintf(stderr, "kvm_set_irq:     kvm_irq=%d level=%d \n", irq, level);
+
     assert(kvm_async_interrupts_enabled());
 
     event.level = level;
@@ -1436,6 +1435,7 @@ static void kvm_irqchip_create(MachineState *machine, KVMState *s)
     /* First probe and see if there's a arch-specific hook to create the
      * in-kernel irqchip for us */
     ret = kvm_arch_irqchip_create(machine, s);
+
     if (ret == 0) {
         if (machine_kernel_irqchip_split(machine)) {
             perror("Split IRQ chip mode not supported.");
@@ -1733,6 +1733,48 @@ void kvm_set_sigmask_len(KVMState *s, unsigned int sigmask_len)
     s->sigmask_len = sigmask_len;
 }
 
+#define KVM_EXIT_HVC_PSCI 0x42
+#define KVM_HVC_PSCI 0xC4000000
+#define KVM_HVC_PSCI_ON (KVM_HVC_PSCI + 0x3)
+
+int kvm_hvc_psci_on_local(int cpu_id, uint64_t pc, uint64_t r0) {
+    //CPUState *cs = qemu_get_cpu(cpu_id);
+
+    struct kvm_dsm_psci psci = {
+        .cpu_id = cpu_id,
+        .pc = pc,
+        .r0 = r0,
+    };
+
+    int ret = kvm_vm_ioctl(kvm_state, KVM_DSM_PSCI, &psci);
+    if (ret < 0) {
+        fprintf(stderr, "KVM_DSM_PSCI failed %d\n", ret);
+    }
+    return ret;
+}
+
+static int kvm_hvc_psci_on(uint64_t cpu_id, uint64_t pc, uint64_t r0) {
+    /* For now we only want to handle forwarding */
+    if (gvm_is_active() && gvm_is_remote_cpu(cpu_id)) {
+        return gvm_kvm_hvc_psci_on_forwarding(cpu_id, pc, r0);
+    }
+    return 0; /* PSCI_RET_SUCCESS */
+}
+
+static int kvm_handle_hvc_psci(__u64 args[6]) {
+    /* Handle PSCI case */
+    uint64_t func_id = args[0];
+
+    if ((func_id & KVM_HVC_PSCI) == KVM_HVC_PSCI) {
+        /* PSCI call */
+        if (func_id == KVM_HVC_PSCI_ON) {
+            /* PSCI CPU On call */
+            return kvm_hvc_psci_on(args[1], args[2], args[3]);
+        }
+    }
+    return 0; /* PSCI_RET_SUCCESS */
+}
+
 static void kvm_handle_io(uint16_t port, MemTxAttrs attrs, void *data, int direction,
                           int size, uint32_t count)
 {
@@ -1740,7 +1782,6 @@ static void kvm_handle_io(uint16_t port, MemTxAttrs attrs, void *data, int direc
     uint8_t *ptr = data;
 
     /* GVM add begin */
-#ifdef __x86_64__
     if (local_cpus != smp_cpus)
     {
         // AP PIO redirect
@@ -1779,7 +1820,6 @@ static void kvm_handle_io(uint16_t port, MemTxAttrs attrs, void *data, int direc
         }
         return;
     }
-#endif
     /* GVM add end */
 
     for (i = 0; i < count; i++) {
@@ -1949,11 +1989,11 @@ int kvm_cpu_exec(CPUState *cpu)
     struct kvm_run *run = cpu->kvm_run;
     int ret, run_ret;
 
-#ifdef __x86_64__
+#ifdef TARGET_X86_64
     struct APICCommonState *apic = APIC_COMMON(X86_CPU(cpu)->apic_state); /* GVM add */
 #endif
 
-    DPRINTF("kvm_cpu_exec()\n");
+    DPRINTF("kvm_cpu_exec() cpu=%d\n", cpu->cpu_index);
 
     if (kvm_arch_process_async_events(cpu)) {
         atomic_set(&cpu->exit_request, 0);
@@ -1973,7 +2013,7 @@ int kvm_cpu_exec(CPUState *cpu)
 
         kvm_arch_pre_run(cpu, run);
         if (atomic_read(&cpu->exit_request)) {
-            DPRINTF("interrupt exit requested\n");
+            DPRINTF("interrupt exit requested cpu=%d\n", cpu->cpu_index);
             /*
              * KVM requires us to reenter the kernel after IO exits to complete
              * instruction emulation. This self-signal will ensure that we
@@ -1988,7 +2028,6 @@ int kvm_cpu_exec(CPUState *cpu)
         smp_rmb();
 
         run_ret = kvm_vcpu_ioctl(cpu, KVM_RUN, 0);
-
         attrs = kvm_arch_post_run(cpu, run);
 
 #ifdef KVM_HAVE_MCE_INJECTION
@@ -2002,8 +2041,8 @@ int kvm_cpu_exec(CPUState *cpu)
 #endif
 
         if (run_ret < 0) {
-            if (run_ret == -EINTR || run_ret == -EAGAIN) {
-                DPRINTF("io window exit\n");
+            if (run_ret == -EINTR || run_ret == -EAGAIN) { // this happens periodically
+                DPRINTF("io window exit cpu=%d\n", cpu->cpu_index);
                 kvm_eat_signals(cpu);
                 ret = EXCP_INTERRUPT;
                 break;
@@ -2024,8 +2063,13 @@ int kvm_cpu_exec(CPUState *cpu)
 
         trace_kvm_run_exit(cpu->cpu_index, run->exit_reason);
         switch (run->exit_reason) {
+        case KVM_EXIT_HVC_PSCI: {
+            kvm_handle_hvc_psci(run->hypercall.args);
+            ret = 0;
+            break;
+        }
         case KVM_EXIT_IO:
-            DPRINTF("handle_io\n");
+            DPRINTF("handle_io cpu=%d\n", cpu->cpu_index);
             /* Called outside BQL */
             kvm_handle_io(run->io.port, attrs,
                           (uint8_t *)run + run->io.data_offset,
@@ -2035,32 +2079,28 @@ int kvm_cpu_exec(CPUState *cpu)
             ret = 0;
             break;
         case KVM_EXIT_MMIO:
-            DPRINTF("handle_mmio\n");
-            /* GVM add begin: used to call address_space_rw */
-#ifdef __x86_64__
-            if (local_cpus != smp_cpus && local_cpu_start_index != 0) {
-                /* MMIOs of APIC should be resolved in apic_io_ops
-                 * Case 1: GPA is in [0xfee00000, 0xfeefffff], this is the
-                 * address space for MSIs, and APIC MMIO space resides in this
-                 * region by default
-                 * Case 2: GPA is in [apicbase, apicbase + 0x1000], this is the
-                 * configurable APIC MMIO space
-                 */
-
-                if (((APIC_DEFAULT_ADDRESS <= run->mmio.phys_addr) &&
-                            (run->mmio.phys_addr < APIC_DEFAULT_ADDRESS + APIC_SPACE_SIZE)) ||
-                        (((apic->apicbase & MSR_IA32_APICBASE_BASE) <= run->mmio.phys_addr) &&
-                            (run->mmio.phys_addr < ((apic->apicbase & MSR_IA32_APICBASE_BASE) + 0x1000)))) {
-                    address_space_rw(&address_space_memory,
-                                     run->mmio.phys_addr, attrs,
-                                     run->mmio.data,
-                                     run->mmio.len,
-                                     run->mmio.is_write);
+            if (gvm_is_active()) {
+                // GIC distributor and CPU MMIO space.
+                if (0x8000000 <= run->mmio.phys_addr && run->mmio.phys_addr <= 0x8011fff) {
+                    // The goal is to write locally and broadcast the changes.
+                    address_space_rw_forward(&address_space_memory,
+                                             run->mmio.phys_addr, attrs,
+                                             run->mmio.data,
+                                             run->mmio.len,
+                                             run->mmio.is_write);
                 } else {
-                    gvm_mmio_forwarding(run->mmio.phys_addr, attrs,
+                    if (gvm_not_bsp()) {
+                        gvm_mmio_forwarding(run->mmio.phys_addr, attrs,
+                                            run->mmio.data,
+                                            run->mmio.len,
+                                            run->mmio.is_write);
+                    } else {
+                        address_space_rw(&address_space_memory,
+                                        run->mmio.phys_addr, attrs,
                                         run->mmio.data,
                                         run->mmio.len,
                                         run->mmio.is_write);
+                    }
                 }
             } else {
                 /* Called outside BQL */
@@ -2070,18 +2110,11 @@ int kvm_cpu_exec(CPUState *cpu)
                                  run->mmio.len,
                                  run->mmio.is_write);
             }
-#else
-            address_space_rw(&address_space_memory,
-                                run->mmio.phys_addr, attrs,
-                                run->mmio.data,
-                                run->mmio.len,
-                                run->mmio.is_write);
-#endif
             /* GVM add end */
             ret = 0;
             break;
         case KVM_EXIT_IRQ_WINDOW_OPEN:
-            DPRINTF("irq_window_open\n");
+            DPRINTF("irq_window_open cpu=%d\n", cpu->cpu_index);
             ret = EXCP_INTERRUPT;
             break;
         case KVM_EXIT_SHUTDOWN:
@@ -2090,7 +2123,7 @@ int kvm_cpu_exec(CPUState *cpu)
             ret = EXCP_INTERRUPT;
             break;
         case KVM_EXIT_UNKNOWN:
-            fprintf(stderr, "KVM: unknown exit, hardware reason %" PRIx64 "\n",
+            DPRINTF("KVM: unknown exit, hardware reason %" PRIx64 "\n",
                     (uint64_t)run->hw.hardware_exit_reason);
             ret = -1;
             break;
@@ -2115,13 +2148,11 @@ int kvm_cpu_exec(CPUState *cpu)
                 ret = 0;
                 break;
             default:
-                DPRINTF("kvm_arch_handle_exit\n");
                 ret = kvm_arch_handle_exit(cpu, run);
                 break;
             }
             break;
         default:
-            DPRINTF("kvm_arch_handle_exit\n");
             ret = kvm_arch_handle_exit(cpu, run);
             break;
         }
@@ -2175,6 +2206,16 @@ int kvm_vm_ioctl(KVMState *s, int type, ...)
     return ret;
 }
 
+int kvm_reg_ioctl_local(int cpu_index, int type, struct kvm_one_reg *reg) {
+    CPUState *cs = qemu_get_cpu(cpu_index);
+
+    int ret = ioctl(cs->kvm_fd, type, (void*)reg);
+    if (ret == -1) {
+        ret = -errno;
+    }
+    return ret;
+}
+
 int kvm_vcpu_ioctl(CPUState *cpu, int type, ...)
 {
     int ret;
@@ -2184,6 +2225,17 @@ int kvm_vcpu_ioctl(CPUState *cpu, int type, ...)
     va_start(ap, type);
     arg = va_arg(ap, void *);
     va_end(ap);
+
+    struct kvm_one_reg *reg = (struct kvm_one_reg *)arg;
+
+    // If we are BSP then SET in self and specific AP.
+    if (cpu->cpu_index > 0 && gvm_is_active()) {
+        if (gvm_is_bsp() && type == KVM_SET_ONE_REG) {
+            if (type == KVM_SET_ONE_REG) {
+                gvm_kvm_reg_ioctl_forwarding(cpu->cpu_index, cpu->cpu_index, type, reg);
+            }
+        }
+    }
 
     trace_kvm_vcpu_ioctl(cpu->cpu_index, type, arg);
     ret = ioctl(cpu->kvm_fd, type, arg);

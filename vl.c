@@ -4624,8 +4624,17 @@ int main(int argc, char **argv, char **envp)
     }
     parse_numa_opts(current_machine);
 
+    fprintf(stderr, "%s: starting start_io_router\n", __func__);
+    start_io_router(); /* GVM add */ // AP main thread waits here until BSP starts.
+
     /* do monitor/qmp handling at preconfig state if requested */
     main_loop();
+
+    if (gvm_is_active() && gvm_not_bsp()) {
+        // wait for ipi mutex.
+        //fprintf(stderr, "GVM: AP has locked IPI mutex waiting for BSP\n");
+        //qemu_mutex_lock(&ipi_mutex);
+    }
 
     /* from here on runstate is RUN_STATE_PRELAUNCH */
     machine_run_board_init(current_machine);
@@ -4742,8 +4751,6 @@ int main(int argc, char **argv, char **envp)
         return 0;
     }
 
-    start_io_router(); /* GVM add */
-
     if (incoming) {
         Error *local_err = NULL;
         qemu_start_incoming_migration(incoming, &local_err);
@@ -4752,11 +4759,17 @@ int main(int argc, char **argv, char **envp)
             exit(1);
         }
     } else if (autostart) {
-        vm_start();
+        vm_start(); // AP calls qemu_cpu_kick here
     }
 
     accel_setup_post(current_machine);
     os_setup_post();
+
+    // This was added to have AP CPUs wait for the BSP to enter the main loop.
+    // The BSP CPUs do not have to begin executing but they should finish pre-exec things.
+    if (gvm_is_active() && gvm_is_bsp()) {
+        //gvm_arm_ipi_unlock_forwarding();
+    }
 
     main_loop();
 

@@ -1131,16 +1131,22 @@ void qemu_init_cpu_loop(void)
     qemu_thread_get_self(&io_thread);
 }
 
+void handle_run_remote(CPUState *cpu);
+
+void handle_run_remote(CPUState *cpu) {
+    printf("GVM: run_on_cpu: requested remote CPU=%d, ignore here. This could be a latent bug.\n", cpu->cpu_index);
+}
+
 void run_on_cpu(CPUState *cpu, run_on_cpu_func func, run_on_cpu_data data)
 {
     /* GVM add begin */
     if (!cpu->local) {
-        printf("GVM: run_on_cpu: requested remote CPU, ignore here. This could be a latent bug.\n");
-        return;
-    }
+        handle_run_remote(cpu);
+    } else {
     /* GVM add end */
 
-    do_run_on_cpu(cpu, func, data, &qemu_global_mutex);
+        do_run_on_cpu(cpu, func, data, &qemu_global_mutex);
+    }
 }
 
 static void qemu_kvm_destroy_vcpu(CPUState *cpu)
@@ -1202,6 +1208,22 @@ static void qemu_wait_io_event(CPUState *cpu)
     qemu_wait_io_event_common(cpu);
 }
 
+static void cpu_wait_until_exit(CPUState *cpu) {
+    qemu_mutex_lock(&qemu_remote_mutex);
+    while (1) {
+        qemu_cond_wait(&qemu_remote_cpu_cond, &qemu_remote_mutex); // AP-paused CPU waits here before the BSP is started
+        wait_remote_cpu_count--;
+        if (qemu_shutdown_requested_get()) {
+            cpu->stopped = true;
+            break;
+        }
+        if (qemu_reset_requested_get()) {
+            cpu->stopped = true;
+        }
+    }
+    qemu_mutex_unlock(&qemu_remote_mutex);
+}
+
 static void *qemu_kvm_cpu_thread_fn(void *arg)
 {
     CPUState *cpu = arg;
@@ -1236,25 +1258,13 @@ static void *qemu_kvm_cpu_thread_fn(void *arg)
                     cpu_handle_guest_debug(cpu);
                 }
             }
-            qemu_wait_io_event(cpu); /* Merge: GVM was qemu_kvm_wait_io_event */
+            qemu_wait_io_event(cpu); /* Merge: GVM was qemu_kvm_wait_io_event */ // AP-controlled CPU waits here before the BSP is started
         } while (!cpu->unplug || cpu_can_run(cpu));
     } else {
         printf("GVM: Pausing remote CPU %d\n", cpu->cpu_index);
         qemu_mutex_unlock_iothread();
         /* use a new lock since qemu_global_mutex may cause deadlock */
-        qemu_mutex_lock(&qemu_remote_mutex);
-        while (1) {
-            qemu_cond_wait(&qemu_remote_cpu_cond, &qemu_remote_mutex);
-            wait_remote_cpu_count--;
-            if (qemu_shutdown_requested_get()) {
-                cpu->stopped = true;
-                break;
-            }
-            if (qemu_reset_requested_get()) {
-                cpu->stopped = true;
-            }
-        }
-        qemu_mutex_unlock(&qemu_remote_mutex);
+        cpu_wait_until_exit(cpu);
     }
     /* GVM add end */
 

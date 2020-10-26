@@ -39,12 +39,6 @@
 #define SYNC_TO_VAPIC                   0x2
 #define SYNC_ISR_IRR_TO_VAPIC           0x4
 
-#define gvm_is_remote_cpu(index) \
-    (local_cpus != smp_cpus && \
-        (index < local_cpu_start_index || \
-         index >= local_cpu_start_index + local_cpus) \
-    )
-
 static APICCommonState *local_apics[MAX_APICS + 1];
 
 #define TYPE_APIC "apic"
@@ -461,7 +455,7 @@ static void apic_eoi(APICCommonState *s)
     apic_reset_bit(s->isr, isrv);
     if (!(s->spurious_vec & APIC_SV_DIRECTED_IO) && apic_get_bit(s->tmr, isrv)) {
         /* GVM add begin: had called ioapic_eoi_broadcast only */
-        if (local_cpus != smp_cpus && local_cpu_start_index != 0) {
+        if (gvm_not_bsp())) {
             gvm_eoi_forwarding(isrv);
         } else {
             ioapic_eoi_broadcast(isrv);

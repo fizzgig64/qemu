@@ -1335,7 +1335,7 @@ void pc_memory_init(PCMachineState *pcms,
     int linux_boot, i;
     MemoryRegion *ram, *option_rom_mr;
     MemoryRegion *ram_below_4g, *ram_above_4g;
-    MemoryRegion *ram_subregion; /* GVM add */
+    MemoryRegion *ram_dsm_subregion; /* GVM add */
     FWCfgState *fw_cfg;
     MachineState *machine = MACHINE(pcms);
     PCMachineClass *pcmc = PC_MACHINE_GET_CLASS(pcms);
@@ -1487,10 +1487,10 @@ void pc_memory_init(PCMachineState *pcms,
         if (ram->ram) {
             mlock(ram->ram_block->host, ram->ram_block->max_length);
         } else {
-            QTAILQ_FOREACH(ram_subregion, &ram->subregions, subregions_link) {
-                if (ram_subregion->ram) {
-                    mlock(ram_subregion->ram_block->host,
-                            ram_subregion->ram_block->max_length);
+            QTAILQ_FOREACH(ram_dsm_subregion, &ram->subregions, subregions_link) {
+                if (ram_dsm_subregion->ram) {
+                    mlock(ram_dsm_subregion->ram_block->host,
+                            ram_dsm_subregion->ram_block->max_length);
                 }
             }
         }

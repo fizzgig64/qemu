@@ -60,6 +60,10 @@
 #include "standard-headers/linux/input.h"
 #include "hw/arm/smmuv3.h"
 
+#include "exec/ram_addr.h" /* GVM add */
+#include "sys/mman.h" /* GVM add */
+#include "interrupt-router.h" /* GVM add */
+
 #define DEFINE_VIRT_MACHINE_LATEST(major, minor, latest) \
     static void virt_##major##_##minor##_class_init(ObjectClass *oc, \
                                                     void *data) \
@@ -1330,6 +1334,28 @@ static void machvirt_init(MachineState *machine)
     bool firmware_loaded = bios_name || drive_get(IF_PFLASH, 0, 0);
     bool aarch64 = true;
 
+    MemoryRegion *ram_dsm_subregion; /* GVM add */
+    struct kvm_dsm_params params; /* GVM add */
+
+    /* GVM add: Start DSM */
+    if (local_cpus != smp_cpus && !shm_path) {
+        if (kvm_enabled() && kvm_check_extension(kvm_state, KVM_CAP_X86_DSM)) {
+            params.dsm_index = local_cpu_start_index / local_cpus;
+            params.cluster_iplist = (void *) get_cluster_iplist(&params.cluster_iplist_len);
+            int ret = kvm_vm_ioctl(kvm_state, KVM_DSM_ENABLE, &params);
+            if (ret < 0) {
+                error_report("GVM: Enable kernel DSM failed: %s", strerror(-ret));
+                exit(EXIT_FAILURE);
+            }
+            printf("GVM: start kvm dsm server, total memory size: %lu\n",
+                    machine->ram_size);
+        } else {
+            error_report("GVM: Could not start distributed QEMU: DSM not supported.");
+            exit(EXIT_FAILURE);
+        }
+    }
+    /* GVM add end */
+
     /* We can probe only here because during property set
      * KVM is not available yet
      */
@@ -1441,6 +1467,12 @@ static void machvirt_init(MachineState *machine)
         cs = CPU(cpuobj);
         cs->cpu_index = n;
 
+        /* GVM add begin */
+        if (n < local_cpu_start_index || n > local_cpu_start_index + local_cpus - 1) {
+            cs->local = false;
+        }
+        /* GVM add end */
+
         numa_cpu_pre_plug(&possible_cpus->cpus[cs->cpu_index], DEVICE(cpuobj),
                           &error_fatal);
 
@@ -1490,6 +1522,21 @@ static void machvirt_init(MachineState *machine)
     memory_region_allocate_system_memory(ram, NULL, "mach-virt.ram",
                                          machine->ram_size);
     memory_region_add_subregion(sysmem, vms->memmap[VIRT_MEM].base, ram);
+
+    /* GVM add begin */
+    if (local_cpus != smp_cpus) {
+        if (ram->ram) {
+            mlock(ram->ram_block->host, ram->ram_block->max_length);
+        } else {
+            QTAILQ_FOREACH(ram_dsm_subregion, &ram->subregions, subregions_link) {
+                if (ram_dsm_subregion->ram) {
+                    mlock(ram_dsm_subregion->ram_block->host,
+                            ram_dsm_subregion->ram_block->max_length);
+                }
+            }
+        }
+    }
+    /* GVM add end */
 
     create_flash(vms, sysmem, secure_sysmem ? secure_sysmem : sysmem);
 

@@ -71,12 +71,14 @@
 
 #include "monitor/monitor.h"
 
+#include "interrupt-router.h"
+
 //#define DEBUG_SUBPAGE
 
 /**
  * Common if check for GVM usage.
  */
-#define gvm_in_use() (kvm_enabled() && local_cpus != smp_cpus && !shm_path) /* GVM add */
+#define gvm_dsm_in_use() (kvm_enabled() && local_cpus != smp_cpus && !shm_path) /* GVM add */
 
 #if !defined(CONFIG_USER_ONLY)
 /* ram_list is read under rcu_read_lock()/rcu_read_unlock().  Writes
@@ -3263,7 +3265,7 @@ static MemTxResult flatview_write_continue(FlatView *fv, hwaddr addr,
             /* RAM case */
             ptr = qemu_ram_ptr_length(mr->ram_block, addr1, &l, false);
             /* GVM add begin: place memcpy into else */
-            if (gvm_in_use()) {
+            if (gvm_dsm_in_use()) {
                 struct kvm_dsm_memcpy cpy = {
                     .write = true,
                     .host_virt_addr = (__u64)ptr,
@@ -3342,7 +3344,7 @@ MemTxResult flatview_read_continue(FlatView *fv, hwaddr addr,
             /* RAM case */
             ptr = qemu_ram_ptr_length(mr->ram_block, addr1, &l, false);
             /* GVM add begin: place memcpy into else */
-            if (gvm_in_use()) {
+            if (gvm_dsm_in_use()) {
                 struct kvm_dsm_memcpy cpy = {
                     .write = false,
                     .host_virt_addr = (__u64)ptr,
@@ -3423,6 +3425,32 @@ MemTxResult address_space_write(AddressSpace *as, hwaddr addr,
         result = flatview_write(fv, addr, attrs, buf, len);
         rcu_read_unlock();
     }
+
+    return result;
+}
+
+MemTxResult address_space_rw_forward(AddressSpace *as, hwaddr addr, MemTxAttrs attrs,
+                             uint8_t *buf, int len, bool is_write)
+{
+    MemTxResult result = MEMTX_OK;
+    FlatView *fv;
+
+    rcu_read_lock();
+    if (is_write) {
+        if (len > 0) {
+            fv = address_space_to_flatview(as);
+            result = flatview_write(fv, addr, attrs, buf, len);
+        }
+    } else {
+        if (len > 0) {
+            fv = address_space_to_flatview(as);
+            result = flatview_read(fv, addr, attrs, buf, len);
+        }
+    }
+
+    gvm_bcast_mmio_forwarding(addr, attrs, buf, len, is_write);
+
+    rcu_read_unlock();
 
     return result;
 }
@@ -3723,9 +3751,9 @@ void *address_space_map(AddressSpace *as,
     ptr = qemu_ram_ptr_length(mr->ram_block, xlat, plen, true);
 
     /* GVM add begin */
-    if (is_dsm != NULL && gvm_in_use())
+    if (is_dsm != NULL && gvm_dsm_in_use())
         *is_dsm = true;
-    if (dsm_pin == DSM_PIN && gvm_in_use()) {
+    if (dsm_pin == DSM_PIN && gvm_dsm_in_use()) {
         int ret;
         struct kvm_dsm_mempin pin = {
             .write = is_write,
@@ -3767,7 +3795,7 @@ void address_space_unmap(AddressSpace *as, void *buffer, hwaddr len,
         }
 
         /* GVM add begin */
-        if (dsm_unpin == DSM_UNPIN && gvm_in_use()) {
+        if (dsm_unpin == DSM_UNPIN && gvm_dsm_in_use()) {
             int ret;
             struct kvm_dsm_mempin pin = {
                 .write = is_write,

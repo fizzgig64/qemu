@@ -8283,6 +8283,9 @@ void arm_cpu_do_interrupt(CPUState *cs)
     CPUARMState *env = &cpu->env;
     unsigned int new_el = env->exception.target_el;
 
+    // GVM TODO: log if this happens
+    fprintf(stdout, "%s: for cpu=%d\n", __func__, cs->cpu_index);
+
     assert(!arm_feature(env, ARM_FEATURE_M));
 
     arm_log_exception(cs->exception_index);

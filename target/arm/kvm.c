@@ -29,6 +29,13 @@
 #include "hw/boards.h"
 #include "qemu/log.h"
 
+#include "interrupt-router.h" /* GVM add */
+
+/* GVM add begin */
+int kvm_arm_sync_mpstate_to_kvm_local(ARMCPU *cpu);
+int kvm_arm_sync_mpstate_to_kvm_remote(int cpu_index, int power_state);
+/* GVM end */
+
 const KVMCapabilityInfo kvm_arch_required_capabilities[] = {
     KVM_CAP_LAST_INFO
 };
@@ -481,22 +488,45 @@ void kvm_arm_reset_vcpu(ARMCPU *cpu)
     }
 }
 
+int kvm_arm_sync_mpstate_to_kvm_local(ARMCPU *cpu) {
+    struct kvm_mp_state mp_state = {
+        .mp_state = (cpu->power_state == PSCI_OFF) ?
+        KVM_MP_STATE_STOPPED : KVM_MP_STATE_RUNNABLE
+    };
+    int ret = kvm_vcpu_ioctl(CPU(cpu), KVM_SET_MP_STATE, &mp_state);
+    if (ret) {
+        fprintf(stderr, "%s: failed to set MP_STATE %d/%s\n",
+                __func__, ret, strerror(-ret));
+        return -1;
+    }
+    return 0;
+}
+
+int kvm_arm_sync_mpstate_to_kvm_remote(int cpu_index, int power_state) {
+    CPUState *cs = qemu_get_cpu(cpu_index);
+    ARMCPU *arm_cpu = ARM_CPU(cs);
+
+    arm_cpu->power_state = power_state;
+    int ret = kvm_arm_sync_mpstate_to_kvm_local(arm_cpu);
+    return ret;
+}
+
 /*
  * Update KVM's MP_STATE based on what QEMU thinks it is
  */
 int kvm_arm_sync_mpstate_to_kvm(ARMCPU *cpu)
 {
     if (cap_has_mp_state) {
-        struct kvm_mp_state mp_state = {
-            .mp_state = (cpu->power_state == PSCI_OFF) ?
-            KVM_MP_STATE_STOPPED : KVM_MP_STATE_RUNNABLE
-        };
-        int ret = kvm_vcpu_ioctl(CPU(cpu), KVM_SET_MP_STATE, &mp_state);
+        int ret = kvm_arm_sync_mpstate_to_kvm_local(cpu);
         if (ret) {
-            fprintf(stderr, "%s: failed to set MP_STATE %d/%s\n",
-                    __func__, ret, strerror(-ret));
-            return -1;
+            return ret;
         }
+
+        /* GVM add */
+        if (gvm_is_active() && cpu->power_state != PSCI_OFF) {
+            gvm_arm_sync_mpstate_to_kvm_forwarding(cpu->parent_obj.cpu_index, cpu->power_state);
+        }
+        /* GVM add end */
     }
 
     return 0;

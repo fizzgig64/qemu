@@ -55,11 +55,23 @@ typedef struct ARMGICv2mState {
     uint32_t num_spi;
 } ARMGICv2mState;
 
-static void gicv2m_set_irq(void *opaque, int irq)
+void gicv2m_set_irq(void *opaque, int irq);
+
+void gicv2m_set_irq(void *opaque, int irq)
 {
     ARMGICv2mState *s = (ARMGICv2mState *)opaque;
 
+    // HEADS UP: Forward these requests?
+    //fprintf(stdout, "%s: irq=%d\n", __func__, irq);
+
     qemu_irq_pulse(s->spi[irq]);
+}
+
+static void gicv2m_set_irq_remote(void *opaque, int irq)
+{
+    ARMGICv2mState *s = (ARMGICv2mState *)opaque;
+    // GVM TODO: Forward this pulse through.
+    gicv2m_set_irq(s, irq);
 }
 
 static uint64_t gicv2m_read(void *opaque, hwaddr offset,
@@ -67,6 +79,8 @@ static uint64_t gicv2m_read(void *opaque, hwaddr offset,
 {
     ARMGICv2mState *s = (ARMGICv2mState *)opaque;
     uint32_t val;
+
+    //fprintf(stdout, "%s: offset=0x%lX\n", __func__, offset);
 
     if (size != 4) {
         qemu_log_mask(LOG_GUEST_ERROR, "gicv2m_read: bad size %u\n", size);
@@ -101,6 +115,9 @@ static void gicv2m_write(void *opaque, hwaddr offset,
 {
     ARMGICv2mState *s = (ARMGICv2mState *)opaque;
 
+    // HEADS UP: Will need to forward this.
+    //fprintf(stdout, "%s: offset=0x%lX\n", __func__, offset);
+
     if (size != 2 && size != 4) {
         qemu_log_mask(LOG_GUEST_ERROR, "gicv2m_write: bad size %u\n", size);
         return;
@@ -112,7 +129,7 @@ static void gicv2m_write(void *opaque, hwaddr offset,
 
         spi = (value & 0x3ff) - (s->base_spi + 32);
         if (spi >= 0 && spi < s->num_spi) {
-            gicv2m_set_irq(s, spi);
+            gicv2m_set_irq_remote(s, spi);
         }
         return;
     }
